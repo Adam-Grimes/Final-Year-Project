@@ -1,4 +1,4 @@
-#Final Year Project - Adam Grimes
+# Final Year Project - Adam Grimes
 
 # Prep: An AI-Powered Recipe Generator and Meal Planner
 
