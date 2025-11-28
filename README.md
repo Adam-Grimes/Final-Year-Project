@@ -1,43 +1,65 @@
-# Final Year Project - Adam Grimes
+# Prep: AI-Powered Recipe Generator & Meal Planner 🥗📱
 
-# Prep: An AI-Powered Recipe Generator and Meal Planner
+> **Final Year Project** | BSc (Honours) in Computer Science  
+> **Atlantic Technological University (ATU)** > **Student:** Adam Grimes
 
-> **Note:** This is my in-progress Final Year Project for the BSc (Honours) in Computer Science at Atlantic Technological University.
+![Project Status](https://img.shields.io/badge/Status-In_Development-orange)
+![License](https://img.shields.io/badge/License-MIT-blue)
 
-This project aims to solve the daily, time-consuming challenge of meal planning. "Prep" is a full-stack Android application designed to bridge the gap between your kitchen and the digital world, transforming the chore of deciding "what's for dinner" into a seamless and creative experience.
+## 📖 Overview
 
-The application allows users to photograph the ingredients they already have, and then leverages AI to generate personalized recipes and weekly meal plans based on those ingredients, along with the user's dietary goals, allergies, and time constraints.
+**Prep** is a full-stack mobile application designed to bridge the gap between your kitchen and the digital world, transforming the chore of deciding "what's for dinner" into a seamless and creative experience.
+
+The application allows users to photograph the ingredients they already have. It then leverages Computer Vision and Generative AI to create personalized recipes and weekly meal plans based on those ingredients, aligning with the user's dietary goals, allergies, and time constraints.
 
 ---
 
 ## 🚀 Key Features
 
-* **Computer Vision Ingredient Scanning:** Utilizes a **YOLO** object detection model to accurately identify and list ingredients from a single photo taken by the user.
-* **Generative AI Recipes:** Integrates the **Google Gemini LLM** to generate unique, personalized recipes from the list of available ingredients.
-* **Personalized Meal Planning:** Generates multi-day meal plans based on user preferences, dietary goals (e.g., calorie counts), and time availability.
-* **Native Android Experience:** A user-friendly and responsive native Android application built in **Kotlin**.
-* **Full-Stack Architecture:** A robust backend built with the **Django REST Framework** to host the AI models and manage API requests from the app.
+* **📸 Snap & Scan:** Utilizes a **YOLO** object detection model to accurately identify and list ingredients from a single photo.
+* **🤖 AI Chef:** Integrates the **Google Gemini LLM** to generate unique, personalized recipes based on scanned ingredients.
+* **📅 Smart Meal Planning:** Generates multi-day meal plans based on user preferences, calorie goals, and schedule.
+* **📱 Cross-Platform Mobile App:** A responsive, modern interface built with **React Native Expo**.
+* **⚙️ Robust API:** A custom backend built with **Django REST Framework** to handle AI processing and user data.
 
 ---
 
-## 🛠 Tech Stack & Architecture
+## 🛠 Tech Stack
 
-This project combines a native mobile frontend with a powerful Python backend to handle complex AI tasks.
+### **Frontend (Mobile)**
+* **Framework:** React Native (via Expo)
+* **Language:** JavaScript/TypeScript
+* **Navigation:** React Navigation
+* **State Management:** React Context / Redux (Optional)
 
-* **Frontend:** Kotlin (Native Android)
-* **Backend:** Python, Django REST Framework
-* **Computer Vision:** YOLO (You Only Look Once)
+### **Backend (API & AI)**
+* **Framework:** Django & Django REST Framework (DRF)
+* **Language:** Python
+* **Computer Vision:** YOLO (You Only Look Once) - Custom trained model
 * **Generative AI:** Google Gemini API
-* **Project Management:** GitHub Project, Git
-* **Development Methodology:** Agile (2-week sprints)
+* **Database:** SQLite (Dev) / PostgreSQL (Prod)
 
 ---
 
-## STATUS: In Development
+## 🏗 Architecture
 
-This project is currently in active development, following the proposed project plan.
+The system follows a standard Client-Server architecture:
 
-* **Weeks 1-4:** Backend & API Development (Django REST API, YOLO & Gemini integration).
-* **Weeks 5-9:** Frontend Mobile App Development (Kotlin UI/UX, API integration).
-* **Weeks 10-12:** Full-stack Integration, Testing, and Documentation.
+1.  **Client (Expo):** Captures image and sends user preferences.
+2.  **API (Django):** Receives image.
+3.  **AI Layer 1 (YOLO):** Scans image and returns a list of string labels (e.g., "chicken", "pasta", "tomato").
+4.  **AI Layer 2 (Gemini):** Takes the labels + user constraints and generates a structured recipe JSON.
+5.  **Response:** The App renders the recipe and adds it to the planner.
+
+---
+
+## 📅 Development Roadmap
+
+This project is being developed using Agile methodology with 2-week sprints.
+
+* [x] **Weeks 1-4:** Backend Setup, Django REST API implementation, YOLO integration, Gemini API connection.
+* [ ] **Weeks 5-9:** Frontend Mobile App Development (React Native UI/UX, Camera integration, API fetch).
+* [ ] **Weeks 10-12:** Full-stack Integration, Unit Testing, User Testing, and Final Documentation.
+
+---
 
