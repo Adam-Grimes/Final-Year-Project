@@ -30,7 +30,6 @@ The application allows users to photograph the ingredients they already have. It
 * **Framework:** React Native (via Expo)
 * **Language:** JavaScript/TypeScript
 * **Navigation:** React Navigation
-* **State Management:** React Context / Redux (Optional)
 
 ### **Backend (API & AI)**
 * **Framework:** Django & Django REST Framework (DRF)
