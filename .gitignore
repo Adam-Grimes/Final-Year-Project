@@ -1,0 +1,13 @@
+# Mac system files
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+backend/venv/
+backend/db.sqlite3
+backend/__pycache__
+
+# Node / Expo
+frontend/node_modules/
+frontend/.expo/
