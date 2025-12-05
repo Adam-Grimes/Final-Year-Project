@@ -1,13 +1,16 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image, SafeAreaView, Platform, StatusBar } from 'react-native';
-// IMPORT THE NEW CAMERA VIEW
+import { 
+  StyleSheet, Text, View, TouchableOpacity, ScrollView, 
+  ActivityIndicator, Alert, Image, SafeAreaView, Platform, 
+  TextInput, KeyboardAvoidingView, Keyboard 
+} from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 
 // --- CONFIGURATION ---
+// ⚠️ REPLACE THIS WITH YOUR LAPTOP'S LOCAL IP ADDRESS
 const YOUR_LAPTOP_IP = '192.168.1.56'; 
-const API_URL = `http://${YOUR_LAPTOP_IP}:8000/api/scan-ingredients/`; 
-// ----------------------
+const BASE_URL = `http://${YOUR_LAPTOP_IP}:8000/api`;
 
 interface Recipe {
   title: string;
@@ -19,569 +22,348 @@ export default function App() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaLibraryPermission, requestMediaLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
   
+  // App States
   const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState("");
   const [isCameraActive, setIsCameraActive] = useState(false);
+  
+  // Logic States
+  const [detectedIngredients, setDetectedIngredients] = useState<string[]>([]);
+  const [isEditingIngredients, setIsEditingIngredients] = useState(false);
+  const [newIngredientText, setNewIngredientText] = useState("");
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
   
   const cameraRef = useRef<CameraView>(null);
 
-  // --- Core Functions ---
-
+  // --- GLOBAL RESET (Universal Home) ---
   const goHome = () => {
     setPhotoUri(null);
     setRecipe(null);
+    setDetectedIngredients([]);
+    setIsEditingIngredients(false);
     setIsCameraActive(false);
     setLoading(false);
   };
 
-  const pickImageFromGallery = async () => {
-    if (!mediaLibraryPermission?.granted) {
-      const permissionResponse = await requestMediaLibraryPermission();
-      if (!permissionResponse.granted) {
-        Alert.alert("Permission Required", "Access to photos is needed. Please enable it in settings.");
-        return;
-      }
-    }
+  // --- ACTIONS ---
+
+  const startCamera = async () => {
+    if (!cameraPermission?.granted) await requestCameraPermission();
+    setIsCameraActive(true);
+  };
+
+  const pickImage = async () => {
+    if (!mediaLibraryPermission?.granted) await requestMediaLibraryPermission();
     
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: false, // DISABLED editing to prevent full-screen native crop UI issues
+      // FIX: Reverting to MediaTypeOptions to ensure button works. 
+      // The warning is better than a broken button.
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+        allowsEditing: false, 
         quality: 0.5,
       });
 
       if (!result.canceled) {
-        setPhotoUri(result.assets[0].uri);
+        // Reset old state before setting new image
         setRecipe(null);
-        setIsCameraActive(false);
+        setDetectedIngredients([]);
+        setIsEditingIngredients(false);
+        setPhotoUri(result.assets[0].uri);
       }
     } catch (error) {
-      console.error("Gallery Error:", error);
+      console.log("Image Picker Error:", error);
       Alert.alert("Error", "Could not open gallery.");
     }
   };
 
-  const startCamera = async () => {
-    if (!cameraPermission?.granted) {
-      const permissionResponse = await requestCameraPermission();
-      if (!permissionResponse.granted) {
-        Alert.alert("Permission Required", "Camera access is needed.");
-        return;
+  const capturePhoto = async () => {
+    if (cameraRef.current) {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, base64: true });
+      if (photo) {
+        setPhotoUri(photo.uri);
+        setIsCameraActive(false);
       }
     }
-    
-    setIsCameraActive(true);
-    setRecipe(null); 
-    setPhotoUri(null);
-  };
-  
-  const capturePhoto = async () => {
-      if (cameraRef.current) {
-        try {
-          const photo = await cameraRef.current.takePictureAsync({
-            quality: 0.5,
-            base64: true,
-            exif: false,
-            skipProcessing: true, 
-            shutterSound: false,
-          });
-          
-          if (photo) {
-            setPhotoUri(photo.uri);
-            setIsCameraActive(false);
-          }
-        } catch (error) {
-          Alert.alert("Camera Error", "Could not take photo.");
-          console.error(error);
-        }
-      }
   };
 
-  const retakePicture = () => {
-    // Reset everything to go back to home state
-    goHome();
-  };
+  // --- API CALLS ---
 
-  const generateRecipe = async () => {
+  const detectIngredients = async () => {
     if (!photoUri) return;
-
-    setLoading(true); 
-    setRecipe(null); 
-    console.log(`Sending request to: ${API_URL}`);
+    setLoading(true);
+    setLoadingText("Analyzing Image..."); // Updated Text
 
     try {
       const formData = new FormData();
       formData.append('image', {
         uri: photoUri,
-        name: 'scan.jpg',
+        name: 'upload.jpg',
         type: 'image/jpeg',
       } as any);
 
-      const response = await fetch(API_URL, {
+      const response = await fetch(`${BASE_URL}/detect-ingredients/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
         body: formData,
       });
 
       const data = await response.json();
-
       if (response.ok) {
-        setRecipe(data.recipe);
-        Alert.alert("Success!", `Detected: ${data.detected_ingredients.join(', ')}`);
+        setDetectedIngredients(data.detected_ingredients || []);
+        setIsEditingIngredients(true);
       } else {
-        Alert.alert("Server Error", data.error || "Unknown server error");
+        Alert.alert("Error", data.error || "Detection failed");
       }
-
     } catch (error) {
-      console.error("Network Error:", error);
-      Alert.alert("Connection Failed", `Could not reach ${API_URL}.\n\n1. Check Django terminal is running.\n2. Check Laptop IP is correct.\n3. Check Phone is on same WiFi.`);
+      Alert.alert("Connection Error", "Is the backend running? Check IP address.");
     } finally {
-      setLoading(false); 
+      setLoading(false);
     }
   };
-  
-  // --- Rendering Logic ---
 
-  if (!cameraPermission || !mediaLibraryPermission) {
+  const generateRecipe = async () => {
+    setLoading(true);
+    setLoadingText("Chef Gemini is cooking...");
+
+    try {
+      const response = await fetch(`${BASE_URL}/generate-recipe/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ingredients: detectedIngredients }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setRecipe(data);
+        setIsEditingIngredients(false);
+      } else {
+        Alert.alert("Error", data.error || "Recipe generation failed");
+      }
+    } catch (error) {
+      Alert.alert("Error", "Could not fetch recipe");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- EDITOR HELPERS ---
+  const addIngredient = () => {
+    if (newIngredientText.trim()) {
+      setDetectedIngredients([...detectedIngredients, newIngredientText.trim()]);
+      setNewIngredientText("");
+    }
+  };
+  const removeIngredient = (index: number) => {
+    const newList = [...detectedIngredients];
+    newList.splice(index, 1);
+    setDetectedIngredients(newList);
+  };
+
+  // --- REUSABLE COMPONENTS ---
+  
+  // Universal Header with Home Button
+  const Header = ({ title, showBack = false, onBack = () => {} }: { title?: string, showBack?: boolean, onBack?: () => void }) => (
+    <View style={styles.navHeader}>
+      <View style={{flexDirection:'row', alignItems:'center'}}>
+        {showBack && (
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Text style={styles.backButtonText}>← Back</Text>
+          </TouchableOpacity>
+        )}
+        {title && <Text style={styles.screenTitle}>{title}</Text>}
+      </View>
+      
+      {/* UNIVERSAL HOME BUTTON */}
+      <TouchableOpacity onPress={goHome} style={styles.homeButton}>
+        <Text style={styles.homeButtonText}>🏠 Home</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // --- RENDERING ---
+
+  if (loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#1E293B" />
-        <Text style={{color: '#1E293B', marginTop:10}}>Loading Permissions...</Text>
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={{marginTop: 10, color: '#475569'}}>{loadingText}</Text>
       </View>
     );
   }
 
-  // 1. RECIPE RESULT SCREEN
-  if (photoUri && recipe) {
+  // 1. RECIPE SCREEN (Final)
+  if (recipe) {
     return (
-      <View style={styles.container}>
-        <SafeAreaView style={{flex: 1}}>
-          <View style={styles.navHeader}>
-             <TouchableOpacity onPress={goHome} style={styles.homeButton}>
-                <Text style={styles.homeButtonText}>Home</Text>
-             </TouchableOpacity>
+      <SafeAreaView style={styles.container}>
+        <Header onBack={() => setIsEditingIngredients(true)} showBack={true} />
+        
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.card}>
+            <Text style={styles.title}>{recipe.title}</Text>
+            <View style={styles.divider}/>
+            
+            <Text style={styles.sectionTitle}>Ingredients</Text>
+            {recipe.ingredients?.map((item, i) => (
+              <Text key={i} style={styles.text}>• {item}</Text>
+            ))}
+            
+            <View style={styles.divider}/>
+            <Text style={styles.sectionTitle}>Steps</Text>
+            {recipe.steps?.map((item, i) => (
+              <View key={i} style={styles.stepRow}>
+                <View style={styles.badge}><Text style={{color:'white'}}>{i+1}</Text></View>
+                <Text style={[styles.text, {flex:1}]}>{item}</Text>
+              </View>
+            ))}
           </View>
           
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.recipeCard}>
-              <Text style={styles.header}>{recipe.title}</Text>
-              
-              <View style={styles.divider} />
-
-              <Text style={styles.sectionHeader}>Ingredients</Text>
-              {recipe.ingredients.map((item, index) => (
-                <View key={index} style={styles.ingredientRow}>
-                  <Text style={styles.bullet}>•</Text>
-                  <Text style={styles.listItem}>{item}</Text>
-                </View>
-              ))}
-
-              <View style={styles.divider} />
-
-              <Text style={styles.sectionHeader}>Instructions</Text>
-              {recipe.steps.map((item, index) => (
-                <View key={index} style={styles.stepRow}>
-                  <View style={styles.stepNumberBadge}>
-                    <Text style={styles.stepNumberText}>{index + 1}</Text>
-                  </View>
-                  <Text style={styles.stepText}>{item}</Text>
-                </View>
-              ))}
-            </View>
-            
-            <View style={{height: 80}} />
-          </ScrollView>
-
-          <View style={styles.bottomBar}>
-              <TouchableOpacity style={[styles.button, styles.retakeButton]} onPress={retakePicture} disabled={loading}>
-                  <Text style={styles.buttonText}>Scan New Item</Text>
-              </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </View>
+          <TouchableOpacity style={[styles.btn, {marginTop: 20, backgroundColor: '#334155'}]} onPress={goHome}>
+            <Text style={styles.btnText}>Start Over</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
-  // 2. CAMERA SCREEN
-  if (isCameraActive) {
+  // 2. EDITOR SCREEN
+  if (isEditingIngredients) {
     return (
-      <View style={[styles.container, { backgroundColor: 'black' }]}>
-        <CameraView style={styles.camera} facing="back" ref={cameraRef}>
-          <View style={styles.cameraButtonContainer}>
-            <TouchableOpacity style={styles.captureButton} onPress={capturePhoto}>
-              <View style={styles.innerCaptureCircle} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={() => setIsCameraActive(false)}>
-              <Text style={styles.cancelText}>Cancel</Text>
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex:1}}>
+          <Header title="Pantry Check" />
+          
+          <View style={{padding: 20}}>
+            <Text style={{color:'#64748B', marginBottom: 15}}>Confirm what we found:</Text>
+            
+            <View style={styles.inputRow}>
+              <TextInput 
+                style={styles.input} 
+                placeholder="Add item..." 
+                value={newIngredientText}
+                onChangeText={setNewIngredientText}
+              />
+              <TouchableOpacity style={styles.addBtn} onPress={addIngredient}>
+                <Text style={{color:'white', fontWeight:'bold'}}>+</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{maxHeight: 400}}>
+              <View style={{flexDirection: 'row', flexWrap: 'wrap'}}>
+                {detectedIngredients.map((item, index) => (
+                  <View key={index} style={styles.tag}>
+                    <Text style={{color: '#0369A1'}}>{item}</Text>
+                    <TouchableOpacity onPress={() => removeIngredient(index)} style={{marginLeft: 8}}>
+                      <Text style={{color: '#0369A1', fontWeight: 'bold'}}>×</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+
+          <View style={styles.footer}>
+            <TouchableOpacity style={[styles.btn, {backgroundColor: '#10B981'}]} onPress={generateRecipe}>
+              <Text style={styles.btnText}>Generate Recipe 🍳</Text>
             </TouchableOpacity>
           </View>
-        </CameraView>
-      </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     );
   }
 
-  // 3. PHOTO PREVIEW SCREEN
+  // 3. PREVIEW SCREEN
   if (photoUri) {
     return (
-      <View style={styles.container}>
-        <SafeAreaView style={styles.previewContainer}>
-          <View style={styles.navHeader}>
-             <Text style={styles.screenTitle}>Review Photo</Text>
-             <TouchableOpacity onPress={goHome} style={styles.homeButton}>
-                <Text style={styles.homeButtonText}>Home</Text>
-             </TouchableOpacity>
-          </View>
+      <SafeAreaView style={styles.container}>
+        <Header title="Review Photo" />
+        <View style={{flex: 1, padding: 20}}>
+          <Image source={{ uri: photoUri }} style={{flex: 1, borderRadius: 20, marginBottom: 20}} resizeMode="contain"/>
           
-          <View style={styles.imageCard}>
-            <Image source={{ uri: photoUri }} style={styles.previewImage} />
-          </View>
-
-          <View style={styles.actionPanel}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#10B981" />
-                <Text style={styles.loadingText}>Thinking up a recipe...</Text>
-              </View>
-            ) : (
-              <>
-                  <TouchableOpacity style={[styles.button, styles.generateButton]} onPress={generateRecipe}>
-                      <Text style={styles.buttonText}>Generate Recipe</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={[styles.button, styles.outlineButton]} onPress={retakePicture}>
-                      <Text style={styles.outlineButtonText}>Retake Photo</Text>
-                  </TouchableOpacity>
-              </>
-            )}
-          </View>
-        </SafeAreaView>
-      </View>
+          <TouchableOpacity style={[styles.btn, {backgroundColor: '#10B981', marginBottom: 10}]} onPress={detectIngredients}>
+            <Text style={styles.btnText}>Analyze Image</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={[styles.btn, {backgroundColor: '#334155'}]} onPress={goHome}>
+            <Text style={styles.btnText}>Retake</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  // 4. HOME SELECTION SCREEN
-  return (
-    <View style={styles.selectionContainer}>
-        <View style={styles.logoContainer}>
-          <Text style={styles.logoEmoji}>👨‍🍳</Text>
-          <Text style={styles.appTitle}>Prep</Text>
-          <Text style={styles.appSubtitle}>Your Personal AI Chef</Text>
+  // 4. CAMERA
+  if (isCameraActive) {
+    return (
+      <CameraView style={{flex: 1}} facing="back" ref={cameraRef}>
+        <View style={{position:'absolute', top: 50, right: 20}}>
+           <TouchableOpacity onPress={goHome}><Text style={{color:'white', fontSize: 18, fontWeight:'bold'}}>✕</Text></TouchableOpacity>
         </View>
+        <View style={{position:'absolute', bottom:50, alignSelf:'center'}}>
+          <TouchableOpacity onPress={capturePhoto} style={{width:70, height:70, borderRadius:35, backgroundColor:'white', borderWidth:5, borderColor:'#ccc'}}/>
+        </View>
+      </CameraView>
+    );
+  }
 
-        <View style={styles.menuCard}>
-          <Text style={styles.selectionPrompt}>How would you like to start?</Text>
-          
-          <TouchableOpacity style={[styles.button, styles.cameraModeButton]} onPress={startCamera}>
-              <Text style={styles.buttonText}>Take Photo</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={[styles.button, styles.galleryModeButton]} onPress={pickImageFromGallery}>
-              <Text style={styles.buttonText}>Open Gallery</Text>
-          </TouchableOpacity>
-        </View>
+  // 5. HOME SCREEN
+  return (
+    <View style={styles.centerContainer}>
+      <Text style={{fontSize: 48, marginBottom: 40, fontWeight: '900', color: '#1E293B', letterSpacing: 2}}>Prep</Text>
+      
+      <TouchableOpacity style={[styles.btn, {backgroundColor: '#10B981', marginBottom: 15}]} onPress={startCamera}>
+        <Text style={styles.btnText}>Take Photo</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity style={[styles.btn, {backgroundColor: '#334155'}]} onPress={pickImage}>
+        <Text style={styles.btnText}>Upload from Gallery</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F1F5F9', // Light gray background
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-  },
+  container: { flex: 1, backgroundColor: '#F1F5F9' },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F1F5F9', padding: 20 },
+  scrollContent: { padding: 20, paddingBottom: 50 },
   
-  // --- NAV HEADER ---
-  navHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    width: '100%',
+  // HEADER
+  navHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 20, 
+    paddingVertical: 15,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0'
   },
-  homeButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 20,
-    marginLeft: 'auto',
-  },
-  homeButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1E293B',
-  },
+  screenTitle: { fontSize: 18, fontWeight: '800', color: '#1E293B', marginLeft: 10 },
+  homeButton: { padding: 8, backgroundColor: '#F1F5F9', borderRadius: 8 },
+  homeButtonText: { fontSize: 14, fontWeight: '600', color: '#334155' },
+  backButton: { padding: 5 },
+  backButtonText: { color: '#3B82F6', fontWeight: '600', fontSize: 16 },
 
-  // --- SELECTION SCREEN ---
-  selectionContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 30,
-    backgroundColor: '#F1F5F9', // Force light background
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 50,
-  },
-  logoEmoji: {
-    fontSize: 60,
-    marginBottom: 10,
-  },
-  appTitle: {
-    fontSize: 42,
-    fontWeight: '900',
-    letterSpacing: 1,
-    color: '#1E293B', // Dark slate text
-  },
-  appSubtitle: {
-    fontSize: 18,
-    marginTop: 5,
-    color: '#475569', // Secondary text
-  },
-  menuCard: {
-    width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
-    padding: 24,
-    borderRadius: 24,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 5,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E2E8F0',
-    shadowOpacity: 0.05,
-  },
-  selectionPrompt: {
-    fontSize: 18,
-    marginBottom: 24,
-    textAlign: 'center',
-    fontWeight: '600',
-    color: '#1E293B',
-  },
-
-  // --- PREVIEW SCREEN ---
-  previewContainer: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  screenTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1E293B',
-  },
-  imageCard: {
-    flex: 1, // Use available space instead of fixed aspect ratio
-    width: '100%',
-    borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: '#E2E8F0',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'contain', // Ensure full image is visible
-  },
-  actionPanel: {
-    width: '100%',
-    alignItems: 'center',
-  },
+  // CARDS & UI
+  card: { backgroundColor: 'white', borderRadius: 20, padding: 20, elevation: 3 },
+  title: { fontSize: 24, fontWeight: '800', color: '#1E293B', marginBottom: 10 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 10 },
+  text: { fontSize: 16, color: '#475569', marginBottom: 6, lineHeight: 22 },
+  divider: { height: 1, backgroundColor: '#E2E8F0', marginVertical: 15 },
   
-  // --- CAMERA ---
-  camera: {
-    flex: 1,
-  },
-  cameraButtonContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingBottom: 50,
-    paddingTop: 20,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-  },
-  captureButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  innerCaptureCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#FFFFFF',
-  },
-  cancelButton: {
-    padding: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 20,
-  },
-  cancelText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // --- RECIPE CARD ---
-  recipeCard: {
-    borderRadius: 24,
-    padding: 24,
-    margin: 20,
-    marginTop: 10, 
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-    backgroundColor: '#FFFFFF',
-  },
-  header: {
-    fontSize: 28,
-    fontWeight: '800',
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#1E293B',
-  },
-  divider: {
-    height: 1,
-    marginVertical: 20,
-    backgroundColor: '#E2E8F0',
-  },
-  sectionHeader: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    color: '#1E293B',
-  },
-  ingredientRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-    alignItems: 'flex-start',
-  },
-  bullet: {
-    fontSize: 18,
-    color: '#10B981', 
-    marginRight: 10,
-    marginTop: -2,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
-  },
-  stepNumberBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#10B981', 
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    marginTop: -2,
-  },
-  stepNumberText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  stepText: {
-    flex: 1,
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#475569',
-  },
-  listItem: {
-    fontSize: 16,
-    lineHeight: 24,
-    flex: 1,
-    color: '#475569',
-  },
-
-  // --- BUTTONS ---
-  button: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    alignItems: 'center',
-    width: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    marginBottom: 12,
-  },
-  cameraModeButton: {
-    backgroundColor: '#10B981', 
-  },
-  galleryModeButton: {
-    backgroundColor: '#334155', 
-  },
-  generateButton: {
-    backgroundColor: '#10B981', 
-  },
-  retakeButton: {
-    backgroundColor: '#10B981', 
-  },
-  outlineButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 2,
-    elevation: 0,
-    shadowOpacity: 0,
-    borderColor: '#475569',
-  },
-  buttonText: {
-    fontSize: 18,
-    color: 'white',
-    fontWeight: '700',
-  },
-  outlineButtonText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#475569',
-  },
-
-  // --- UTILS ---
-  loadingContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#475569',
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    borderTopWidth: 1,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E2E8F0',
-  },
-  scrollContent: {
-    paddingBottom: 40,
-  },
+  // BUTTONS
+  btn: { width: '100%', padding: 16, borderRadius: 12, alignItems: 'center' },
+  btnText: { color: 'white', fontSize: 16, fontWeight: '700' },
+  addBtn: { backgroundColor: '#334155', width: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  
+  // LIST ITEMS
+  stepRow: { flexDirection: 'row', marginBottom: 12 },
+  badge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  tag: { flexDirection: 'row', backgroundColor: '#E0F2FE', padding: 10, borderRadius: 20, marginRight: 8, marginBottom: 8 },
+  
+  // INPUTS
+  inputRow: { flexDirection: 'row', marginBottom: 20 },
+  input: { flex: 1, backgroundColor: 'white', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', marginRight: 10 },
+  footer: { padding: 20, borderTopWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white' },
 });
