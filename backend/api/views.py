@@ -18,8 +18,6 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 # Fallback Key (Only if .env fails)
-if not GOOGLE_API_KEY:
-    GOOGLE_API_KEY = "AIzaSyBWZqvy35WVJJIoSgB3TRUgAv82aBtzmlY"
 
 genai.configure(api_key=GOOGLE_API_KEY)
 
