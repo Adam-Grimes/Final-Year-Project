@@ -34,7 +34,7 @@ The application allows users to photograph the ingredients they already have. It
 ### **Backend (API & AI)**
 * **Framework:** Django & Django REST Framework (DRF)
 * **Language:** Python
-* **Computer Vision:** YOLO (You Only Look Once) - Custom trained model
+* **Computer Vision:** YOLO (You Only Look Once) world model
 * **Generative AI:** Google Gemini API
 * **Database:** SQLite (Dev) / PostgreSQL (Prod)
 
