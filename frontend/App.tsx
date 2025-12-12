@@ -177,7 +177,7 @@ export default function App() {
       
       {/* UNIVERSAL HOME BUTTON */}
       <TouchableOpacity onPress={goHome} style={styles.homeButton}>
-        <Text style={styles.homeButtonText}>🏠 Home</Text>
+        <Text style={styles.homeButtonText}>Home</Text>
       </TouchableOpacity>
     </View>
   );

@@ -22,7 +22,7 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
 print("Loading AI Models...")
-GEMINI_MODEL_NAME = "models/gemini-2.0-flash"
+GEMINI_MODEL_NAME = "models/gemini-2.5-flash"
 gemini_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
 
 yolo_model = YOLOWorld("yolov8l-worldv2.pt")
