@@ -128,6 +128,8 @@ class GenerateRecipeView(APIView):
             print(f"Generating recipe for: {ingredients_str}")
             prompt = f"""
             Create a simple recipe using: {ingredients_str}.
+            You do not need to use all ingredients.
+            Have the recipe be a basic Irish / British / American dish.
             Assume basic pantry staples (oil, salt, pepper).
             """
             

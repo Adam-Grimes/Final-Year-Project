@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, ScrollView, 
-  ActivityIndicator, Alert, Image, SafeAreaView, Platform, 
+  ActivityIndicator, Alert, Image, Platform, 
   TextInput, KeyboardAvoidingView, Keyboard 
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 // --- CONFIGURATION ---
 // ⚠️ REPLACE THIS WITH YOUR LAPTOP'S LOCAL IP ADDRESS
@@ -18,7 +19,7 @@ interface Recipe {
   steps: string[];
 }
 
-export default function App() {
+function MainApp() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaLibraryPermission, requestMediaLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
   
@@ -197,7 +198,14 @@ export default function App() {
   if (recipe) {
     return (
       <SafeAreaView style={styles.container}>
-        <Header onBack={() => setIsEditingIngredients(true)} showBack={true} />
+        <Header 
+          showBack={true} 
+          onBack={() => {
+            // FIX: Clear recipe so we fall back to the Editor screen logic
+            setRecipe(null);
+            setIsEditingIngredients(true);
+          }} 
+        />
         
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.card}>
@@ -232,7 +240,11 @@ export default function App() {
     return (
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex:1}}>
-          <Header title="Pantry Check" />
+          <Header 
+            title="Pantry Check"
+            showBack={true}
+            onBack={() => setIsEditingIngredients(false)} // Falls back to Preview (photoUri)
+          />
           
           <View style={{padding: 20}}>
             <Text style={{color:'#64748B', marginBottom: 15}}>Confirm what we found:</Text>
@@ -320,6 +332,14 @@ export default function App() {
         <Text style={styles.btnText}>Upload from Gallery</Text>
       </TouchableOpacity>
     </View>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <MainApp />
+    </SafeAreaProvider>
   );
 }
 
