@@ -14,18 +14,26 @@ from pathlib import Path
 # Robust .env loading
 CURRENT_DIR = Path(__file__).resolve().parent
 ENV_PATH = CURRENT_DIR / '.env'
+# If not found in the api folder, look one level up (backend/.env)
+if not ENV_PATH.exists():
+    ENV_PATH = CURRENT_DIR.parent / '.env'
 load_dotenv(dotenv_path=ENV_PATH)
 
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-# Fallback Key (Only if .env fails)
-
-genai.configure(api_key=GOOGLE_API_KEY)
-
-print("Loading AI Models...")
-GEMINI_MODEL_NAME = "models/gemini-2.5-flash"
-gemini_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
+else:
+    print(f"WARNING: GOOGLE_API_KEY not found in {ENV_PATH}. Gemini API will be unavailable.")
 
 yolo_model = YOLOWorld("yolov8l-worldv2.pt")
+print("Loading AI Models...")
+GEMINI_MODEL_NAME = "models/gemini-2.5-flash"
+# Only instantiate the Gemini model if we have an API key
+gemini_model = None
+if GOOGLE_API_KEY:
+    gemini_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+else:
+    print("Gemini model skipped due to missing API key.")
 yolo_model.set_classes([
     "bottle", "jar", "food package", "vegetable", "fruit",
     "meat package", "carton", "can", "tub", "container"
@@ -38,8 +46,9 @@ class DetectIngredientsView(APIView):
     def post(self, request, *args, **kwargs):
         if 'image' not in request.FILES:
             return Response({"error": "No image provided"}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
+            if gemini_model is None:
+                return Response({"error": "Server misconfigured: missing GOOGLE_API_KEY"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             image_file = request.FILES['image']
             original_img = Image.open(image_file).convert('RGB')
 
@@ -125,6 +134,8 @@ class GenerateRecipeView(APIView):
         ingredients_str = ", ".join(ingredients) if ingredients else "nothing"
         
         try:
+            if gemini_model is None:
+                return Response({"error": "Server misconfigured: missing GOOGLE_API_KEY"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             print(f"Generating recipe for: {ingredients_str}")
             prompt = f"""
             Create a simple recipe using: {ingredients_str}.
