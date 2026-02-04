@@ -1,5 +1,5 @@
 ---
-name: pull request template
+name: pull_request_template
 about: Briefly describe the changes made.
 title: ''
 labels: ''
