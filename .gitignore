@@ -20,10 +20,3 @@ frontend/coverage/
 frontend/.jest/
 frontend/jest-cache/
 frontend/jest-coverage/
-frontend/*.test.js
-frontend/*.test.js.map
-frontend/*.spec.js
-frontend/*.spec.js.map
-frontend/*.js
-frontend/*.js.map
-frontend/*.d.ts
