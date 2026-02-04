@@ -9,8 +9,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 // --- CONFIGURATION ---
-// ⚠️ REPLACE THIS WITH YOUR LAPTOP'S LOCAL IP ADDRESS
-const YOUR_LAPTOP_IP = '192.168.1.56'; 
+// REPLACE THIS WITH YOUR LAPTOP'S LOCAL IP ADDRESS
+const YOUR_LAPTOP_IP = '192.168.1.88'; 
 const BASE_URL = `http://${YOUR_LAPTOP_IP}:8000/api`;
 
 interface Recipe {
