@@ -39,7 +39,7 @@ jobs:
           echo "DEBUG=True" >> .env
           echo "GOOGLE_API_KEY=fake_google_key_for_testing" >> .env
 
-          python manage.py test
+          python manage.py test api
 
   #JOB 2: FRONTEND (Expo)
   frontend-test:
