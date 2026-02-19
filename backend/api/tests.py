@@ -125,6 +125,53 @@ class DetectIngredientsViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("Server misconfigured", response.data['error'])
 
+    @patch('api.views.yolo_model')
+    @patch('api.views.gemini_model')
+    def test_detect_ingredients_empty_result_returns_empty_list(self, mock_gemini, mock_yolo):
+        """
+        State test: when Gemini returns an empty ingredients list, the response
+        body should contain an empty list — not an error.
+        """
+        mock_result = MagicMock()
+        mock_result.boxes = []
+        mock_yolo.predict.return_value = [mock_result]
+
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.text = json.dumps({"ingredients": []})
+        mock_gemini.generate_content.return_value = mock_gemini_response
+
+        self.image_file.seek(0)
+        self.image_file.name = 'test.jpg'
+        response = self.client.post(self.url, {'image': self.image_file}, format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # State: view must still return the key with an empty list, not omit it
+        self.assertIn('detected_ingredients', response.data)
+        self.assertEqual(response.data['detected_ingredients'], [])
+
+    @patch('api.views.yolo_model')
+    @patch('api.views.gemini_model')
+    def test_detect_ingredients_malformed_json_returns_500(self, mock_gemini, mock_yolo):
+        """
+        State test: when Gemini returns text that is not valid JSON, the view
+        should catch the parse error and return 500, not crash unhandled.
+        """
+        mock_result = MagicMock()
+        mock_result.boxes = []
+        mock_yolo.predict.return_value = [mock_result]
+
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.text = "this is not json"
+        mock_gemini.generate_content.return_value = mock_gemini_response
+
+        self.image_file.seek(0)
+        self.image_file.name = 'test.jpg'
+        response = self.client.post(self.url, {'image': self.image_file}, format='multipart')
+
+        # State: a clean 500 with an error message — not an unhandled crash or 200
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn('error', response.data)
+
 
 class GenerateRecipeViewTests(APITestCase):
     def setUp(self):
@@ -175,6 +222,69 @@ class GenerateRecipeViewTests(APITestCase):
         
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("Server misconfigured", response.data['error'])
+
+    @patch('api.views.gemini_model')
+    def test_generate_recipe_response_has_required_fields(self, mock_gemini):
+        """
+        State test: the response must always contain title, ingredients, and
+        steps — regardless of what specific values Gemini returns.
+        """
+        mock_recipe = {
+            "title": "Simple Omelette",
+            "ingredients": ["eggs", "butter", "salt"],
+            "steps": ["Beat eggs", "Melt butter", "Cook omelette"]
+        }
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.text = json.dumps(mock_recipe)
+        mock_gemini.generate_content.return_value = mock_gemini_response
+
+        response = self.client.post(self.url, {"ingredients": ["eggs"]}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # State: all three required fields must be present in the response body
+        for field in ('title', 'ingredients', 'steps'):
+            self.assertIn(field, response.data)
+        # State: ingredients and steps must be lists, title must be a string
+        self.assertIsInstance(response.data['title'], str)
+        self.assertIsInstance(response.data['ingredients'], list)
+        self.assertIsInstance(response.data['steps'], list)
+
+    @patch('api.views.gemini_model')
+    def test_generate_recipe_empty_ingredients_list_still_returns_recipe(self, mock_gemini):
+        """
+        State test: sending an empty ingredients list should not cause an error.
+        The view falls back to 'nothing' and Gemini still returns a recipe.
+        """
+        mock_recipe = {
+            "title": "Pantry Pasta",
+            "ingredients": ["pasta", "olive oil", "garlic"],
+            "steps": ["Boil pasta", "Add oil and garlic", "Serve"]
+        }
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.text = json.dumps(mock_recipe)
+        mock_gemini.generate_content.return_value = mock_gemini_response
+
+        response = self.client.post(self.url, {"ingredients": []}, format='json')
+
+        # State: empty input must not cause a 400 or 500 — the view handles it
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('title', response.data)
+
+    @patch('api.views.gemini_model')
+    def test_generate_recipe_malformed_json_returns_500(self, mock_gemini):
+        """
+        State test: when Gemini returns text that is not valid JSON, the view
+        should return 500 with an error message, not crash unhandled.
+        """
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.text = "not valid json at all"
+        mock_gemini.generate_content.return_value = mock_gemini_response
+
+        response = self.client.post(self.url, {"ingredients": ["tomato"]}, format='json')
+
+        # State: clean 500, not an unhandled exception
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn('error', response.data)
 
 
 
