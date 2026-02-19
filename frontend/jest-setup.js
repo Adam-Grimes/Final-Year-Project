@@ -1,6 +1,11 @@
 // Set up fake timers to prevent async issues
 jest.useFakeTimers();
 
+// Mock AsyncStorage
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+
 // Mock expo-camera
 jest.mock('expo-camera', () => {
   const React = require('react');
