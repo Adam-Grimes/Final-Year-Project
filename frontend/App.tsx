@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
   StyleSheet, Text, View, TouchableOpacity, ScrollView, 
   ActivityIndicator, Alert, Image, Platform, 
@@ -19,6 +20,11 @@ interface Recipe {
   steps: string[];
 }
 
+interface SavedRecipe extends Recipe {
+  savedAt: string;
+  backendId?: number;
+}
+
 function MainApp() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaLibraryPermission, requestMediaLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
@@ -34,8 +40,166 @@ function MainApp() {
   const [isEditingIngredients, setIsEditingIngredients] = useState(false);
   const [newIngredientText, setNewIngredientText] = useState("");
   const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
+  const [viewingSaved, setViewingSaved] = useState(false);
+  const [viewingSavedRecipe, setViewingSavedRecipe] = useState<SavedRecipe | null>(null);
+
+  // Auth States
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmailInput, setAuthEmailInput] = useState('');
+  const [authPasswordInput, setAuthPasswordInput] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
   
   const cameraRef = useRef<CameraView>(null);
+
+  const STORAGE_KEY = 'saved_recipes';
+
+  useEffect(() => {
+    loadSavedRecipes();
+    loadAuthToken();
+  }, []);
+
+  const loadSavedRecipes = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored) setSavedRecipes(JSON.parse(stored));
+    } catch (e) {
+      console.log('Failed to load saved recipes:', e);
+    }
+  };
+
+  const loadAuthToken = async () => {
+    try {
+      const token = await AsyncStorage.getItem('auth_token');
+      const email = await AsyncStorage.getItem('auth_email');
+      if (token && email) {
+        setAuthToken(token);
+        setAuthEmail(email);
+        syncFromBackend(token);
+      }
+    } catch (e) {
+      console.log('Failed to load auth token:', e);
+    }
+  };
+
+  const syncFromBackend = async (token: string) => {
+    try {
+      const response = await fetch(`${BASE_URL}/recipes/`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const backendRecipes = await response.json();
+        const merged: SavedRecipe[] = backendRecipes.map((r: any) => ({
+          title: r.title,
+          ingredients: r.ingredients,
+          steps: r.steps,
+          savedAt: r.created_at,
+          backendId: r.id,
+        }));
+        setSavedRecipes(merged);
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      }
+    } catch (e) {
+      console.log('Backend sync failed, using local data:', e);
+    }
+  };
+
+  const handleAuth = async () => {
+    if (!authEmailInput.trim() || !authPasswordInput.trim()) {
+      setAuthError('Please enter email and password.');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError('');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const endpoint = authMode === 'login' ? 'auth/login/' : 'auth/register/';
+      const response = await fetch(`${BASE_URL}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmailInput.trim(), password: authPasswordInput }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const data = await response.json();
+      if (response.ok) {
+        await AsyncStorage.setItem('auth_token', data.access);
+        await AsyncStorage.setItem('auth_email', data.email);
+        setAuthToken(data.access);
+        setAuthEmail(data.email);
+        setShowAuth(false);
+        setAuthEmailInput('');
+        setAuthPasswordInput('');
+        syncFromBackend(data.access);
+      } else {
+        setAuthError(data.error || JSON.stringify(data));
+      }
+    } catch (e: any) {
+      clearTimeout(timeout);
+      if (e?.name === 'AbortError') {
+        setAuthError('Request timed out. Is the backend running and IP correct?');
+      } else {
+        setAuthError('Connection error. Is the backend running?');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem('auth_token');
+    await AsyncStorage.removeItem('auth_email');
+    setAuthToken(null);
+    setAuthEmail(null);
+  };
+
+  const saveRecipe = async (recipeToSave: Recipe) => {
+    try {
+      let backendId: number | undefined;
+      if (authToken) {
+        const response = await fetch(`${BASE_URL}/recipes/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+          body: JSON.stringify({ title: recipeToSave.title, ingredients: recipeToSave.ingredients, steps: recipeToSave.steps }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          backendId = data.id;
+        }
+      }
+      const newEntry: SavedRecipe = { ...recipeToSave, savedAt: new Date().toISOString(), backendId };
+      const updated = [...savedRecipes, newEntry];
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      setSavedRecipes(updated);
+      Alert.alert('Saved!', `"${recipeToSave.title}" saved${authToken ? ' to your account & device' : ' to your device'}.`);
+    } catch (e) {
+      Alert.alert('Error', 'Could not save recipe.');
+    }
+  };
+
+  const deleteRecipe = async (savedAt: string) => {
+    try {
+      const target = savedRecipes.find(r => r.savedAt === savedAt);
+      if (target?.backendId && authToken) {
+        await fetch(`${BASE_URL}/recipes/${target.backendId}/`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+      }
+      const updated = savedRecipes.filter(r => r.savedAt !== savedAt);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      setSavedRecipes(updated);
+    } catch (e) {
+      Alert.alert('Error', 'Could not delete recipe.');
+    }
+  };
+
+  const isRecipeSaved = (title: string) => savedRecipes.some(r => r.title === title);
 
   // --- GLOBAL RESET (Universal Home) ---
   const goHome = () => {
@@ -45,6 +209,9 @@ function MainApp() {
     setIsEditingIngredients(false);
     setIsCameraActive(false);
     setLoading(false);
+    setViewingSaved(false);
+    setViewingSavedRecipe(null);
+    setShowAuth(false);
   };
 
   // --- ACTIONS ---
@@ -194,6 +361,74 @@ function MainApp() {
     );
   }
 
+  // 0a. SAVED RECIPE DETAIL VIEW
+  if (viewingSavedRecipe) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Header showBack={true} onBack={() => setViewingSavedRecipe(null)} />
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.card}>
+            <Text style={styles.title}>{viewingSavedRecipe.title}</Text>
+            <Text style={{color: '#94A3B8', marginBottom: 10, fontSize: 12}}>
+              Saved {new Date(viewingSavedRecipe.savedAt).toLocaleDateString()}
+            </Text>
+            <View style={styles.divider}/>
+            <Text style={styles.sectionTitle}>Ingredients</Text>
+            {viewingSavedRecipe.ingredients?.map((item, i) => (
+              <Text key={i} style={styles.text}>• {item}</Text>
+            ))}
+            <View style={styles.divider}/>
+            <Text style={styles.sectionTitle}>Steps</Text>
+            {viewingSavedRecipe.steps?.map((item, i) => (
+              <View key={i} style={styles.stepRow}>
+                <View style={styles.badge}><Text style={{color:'white'}}>{i+1}</Text></View>
+                <Text style={[styles.text, {flex:1}]}>{item}</Text>
+              </View>
+            ))}
+          </View>
+          <TouchableOpacity
+            style={[styles.btn, {marginTop: 20, backgroundColor: '#EF4444'}]}
+            onPress={() => {
+              Alert.alert('Delete Recipe', `Remove "${viewingSavedRecipe.title}" from saved?`, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: () => { deleteRecipe(viewingSavedRecipe.savedAt); setViewingSavedRecipe(null); } },
+              ]);
+            }}
+          >
+            <Text style={styles.btnText}>Delete Recipe 🗑️</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // 0b. SAVED RECIPES LIST SCREEN
+  if (viewingSaved) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Header title="Saved Recipes" showBack={true} onBack={() => setViewingSaved(false)} />
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {savedRecipes.length === 0 ? (
+            <View style={{alignItems: 'center', marginTop: 60}}>
+              <Text style={{fontSize: 40, marginBottom: 16}}>📭</Text>
+              <Text style={{color: '#64748B', fontSize: 16}}>No saved recipes yet.</Text>
+              <Text style={{color: '#94A3B8', fontSize: 14, marginTop: 8}}>Generate a recipe and tap Save!</Text>
+            </View>
+          ) : (
+            savedRecipes.slice().reverse().map((item, i) => (
+              <TouchableOpacity key={i} style={[styles.card, {marginBottom: 12}]} onPress={() => setViewingSavedRecipe(item)}>
+                <Text style={styles.sectionTitle}>{item.title}</Text>
+                <Text style={{color: '#94A3B8', fontSize: 12}}>
+                  {item.ingredients?.length} ingredients · Saved {new Date(item.savedAt).toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   // 1. RECIPE SCREEN (Final)
   if (recipe) {
     return (
@@ -227,7 +462,17 @@ function MainApp() {
             ))}
           </View>
           
-          <TouchableOpacity style={[styles.btn, {marginTop: 20, backgroundColor: '#334155'}]} onPress={goHome}>
+          {!isRecipeSaved(recipe.title) ? (
+            <TouchableOpacity style={[styles.btn, {marginTop: 20, backgroundColor: '#10B981'}]} onPress={() => saveRecipe(recipe)}>
+              <Text style={styles.btnText}>Save Recipe 💾</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.btn, {marginTop: 20, backgroundColor: '#D1FAE5'}]}>
+              <Text style={[styles.btnText, {color: '#065F46'}]}>✓ Recipe Saved</Text>
+            </View>
+          )}
+
+          <TouchableOpacity style={[styles.btn, {marginTop: 10, backgroundColor: '#334155'}]} onPress={goHome}>
             <Text style={styles.btnText}>Start Over</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -320,6 +565,57 @@ function MainApp() {
   }
 
   // 5. HOME SCREEN
+  if (showAuth) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Header showBack={true} onBack={() => { setShowAuth(false); setAuthError(''); }} />
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex:1}}>
+          <ScrollView contentContainerStyle={{padding: 24, paddingTop: 32}} keyboardShouldPersistTaps="handled">
+            <Text style={[styles.title, {marginBottom: 4}]}>{authMode === 'login' ? 'Sign In' : 'Create Account'}</Text>
+            <Text style={{color:'#64748B', marginBottom: 24}}>
+              {authMode === 'login' ? 'Sign in to sync your recipes across devices.' : 'Create an account to back up recipes to the cloud.'}
+            </Text>
+
+            <TextInput
+              style={styles.authInput}
+              placeholder="Email address"
+              value={authEmailInput}
+              onChangeText={setAuthEmailInput}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <TextInput
+              style={styles.authInput}
+              placeholder="Password"
+              value={authPasswordInput}
+              onChangeText={setAuthPasswordInput}
+              secureTextEntry
+            />
+
+            {authError ? <Text style={{color:'#EF4444', marginBottom: 12}}>{authError}</Text> : null}
+
+            <TouchableOpacity
+              style={[styles.btn, {backgroundColor: '#3B82F6', marginBottom: 12}]}
+              onPress={handleAuth}
+              disabled={authLoading}
+            >
+              {authLoading
+                ? <ActivityIndicator color="white" />
+                : <Text style={styles.btnText}>{authMode === 'login' ? 'Sign In' : 'Register'}</Text>
+              }
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}>
+              <Text style={{color:'#3B82F6', textAlign:'center', fontSize: 14}}>
+                {authMode === 'login' ? "Don't have an account? Register" : 'Already have an account? Sign In'}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <View style={styles.centerContainer}>
       <Text style={{fontSize: 48, marginBottom: 40, fontWeight: '900', color: '#1E293B', letterSpacing: 2}}>Prep</Text>
@@ -331,6 +627,23 @@ function MainApp() {
       <TouchableOpacity style={[styles.btn, {backgroundColor: '#334155'}]} onPress={pickImage}>
         <Text style={styles.btnText}>Upload from Gallery</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity style={[styles.btn, {backgroundColor: '#7C3AED', marginTop: 15}]} onPress={() => setViewingSaved(true)}>
+        <Text style={styles.btnText}>Saved Recipes 💾{savedRecipes.length > 0 ? ` (${savedRecipes.length})` : ''}</Text>
+      </TouchableOpacity>
+
+      {authToken ? (
+        <View style={{marginTop: 20, alignItems: 'center'}}>
+          <Text style={{color: '#64748B', fontSize: 13, marginBottom: 8}}>✓ Signed in as {authEmail}</Text>
+          <TouchableOpacity onPress={handleLogout}>
+            <Text style={{color: '#EF4444', fontSize: 13, fontWeight: '600'}}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity style={{marginTop: 20}} onPress={() => { setShowAuth(true); setAuthMode('login'); }}>
+          <Text style={{color: '#3B82F6', fontSize: 14, fontWeight: '600'}}>Sign in to sync recipes across devices</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -385,5 +698,6 @@ const styles = StyleSheet.create({
   // INPUTS
   inputRow: { flexDirection: 'row', marginBottom: 20 },
   input: { flex: 1, backgroundColor: 'white', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', marginRight: 10 },
+  authInput: { backgroundColor: 'white', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', marginBottom: 12, fontSize: 16 },
   footer: { padding: 20, borderTopWidth: 1, borderColor: '#E2E8F0', backgroundColor: 'white' },
 });

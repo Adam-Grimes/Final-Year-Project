@@ -7,8 +7,15 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.contrib.auth import authenticate, get_user_model
 from dotenv import load_dotenv
 from pathlib import Path
+from .models import SavedRecipe
+from .serializers import RegisterSerializer, SavedRecipeSerializer
+
+User = get_user_model()
 
 # --- CONFIGURATION ---
 # Robust .env loading
@@ -42,6 +49,7 @@ print("AI Models Loaded.")
 
 class DetectIngredientsView(APIView):
     parser_classes = (MultiPartParser, FormParser)
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         if 'image' not in request.FILES:
@@ -128,6 +136,7 @@ class DetectIngredientsView(APIView):
 
 class GenerateRecipeView(APIView):
     parser_classes = (JSONParser,)
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
         ingredients = request.data.get('ingredients', [])
@@ -167,3 +176,68 @@ class GenerateRecipeView(APIView):
         except Exception as e:
             print(f"Recipe Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# --- AUTH VIEWS ---
+
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'email': user.email,
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        user = authenticate(request, email=email, password=password)
+        if user:
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'email': user.email,
+            })
+        return Response({'error': 'Invalid email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+# --- SAVED RECIPE VIEWS ---
+
+class SavedRecipeListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        recipes = SavedRecipe.objects.filter(user=request.user)
+        serializer = SavedRecipeSerializer(recipes, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = SavedRecipeSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(user=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SavedRecipeDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            recipe = SavedRecipe.objects.get(pk=pk, user=request.user)
+            recipe.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except SavedRecipe.DoesNotExist:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)

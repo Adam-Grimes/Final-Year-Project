@@ -1,10 +1,22 @@
 from django.urls import path
-from .views import DetectIngredientsView, GenerateRecipeView
+from rest_framework_simplejwt.views import TokenRefreshView
+from .views import (
+    DetectIngredientsView, GenerateRecipeView,
+    RegisterView, LoginView,
+    SavedRecipeListView, SavedRecipeDetailView,
+)
 
 urlpatterns = [
-    # Endpoint 1: Detect ingredients from photo (YOLO + Gemini)
+    # AI endpoints
     path('detect-ingredients/', DetectIngredientsView.as_view(), name='detect-ingredients'),
-    
-    # Endpoint 2: Generate recipe from list (Gemini)
     path('generate-recipe/', GenerateRecipeView.as_view(), name='generate-recipe'),
+
+    # Auth endpoints
+    path('auth/register/', RegisterView.as_view(), name='register'),
+    path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+
+    # Saved recipes
+    path('recipes/', SavedRecipeListView.as_view(), name='saved-recipes'),
+    path('recipes/<int:pk>/', SavedRecipeDetailView.as_view(), name='saved-recipe-detail'),
 ]

@@ -90,7 +90,7 @@ class SavedRecipe(models.Model):
     steps = models.JSONField(
         help_text='Ordered list of recipe steps, e.g. ["Preheat oven", "Mix ingredients"].'
     )
-    calories = models.IntegerField(help_text='Estimated calorie count for the meal.')
+    calories = models.IntegerField(null=True, blank=True, help_text='Estimated calorie count for the meal.')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
