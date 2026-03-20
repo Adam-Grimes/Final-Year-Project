@@ -84,12 +84,6 @@ class SavedRecipe(models.Model):
         User, on_delete=models.CASCADE, related_name='saved_recipes'
     )
     title = models.CharField(max_length=255)
-    ingredients = models.JSONField(
-        help_text='Structured list of ingredients, e.g. [{"name": "flour", "amount": "200g"}].'
-    )
-    steps = models.JSONField(
-        help_text='Ordered list of recipe steps, e.g. ["Preheat oven", "Mix ingredients"].'
-    )
     calories = models.IntegerField(null=True, blank=True, help_text='Estimated calorie count for the meal.')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -100,6 +94,40 @@ class SavedRecipe(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class RecipeIngredient(models.Model):
+    recipe = models.ForeignKey(
+        SavedRecipe, on_delete=models.CASCADE, related_name='ingredient_items'
+    )
+    order = models.PositiveIntegerField()
+    text = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ['order']
+        constraints = [
+            models.UniqueConstraint(fields=['recipe', 'order'], name='uniq_recipe_ingredient_order')
+        ]
+
+    def __str__(self):
+        return self.text
+
+
+class RecipeStep(models.Model):
+    recipe = models.ForeignKey(
+        SavedRecipe, on_delete=models.CASCADE, related_name='step_items'
+    )
+    order = models.PositiveIntegerField()
+    text = models.TextField()
+
+    class Meta:
+        ordering = ['order']
+        constraints = [
+            models.UniqueConstraint(fields=['recipe', 'order'], name='uniq_recipe_step_order')
+        ]
+
+    def __str__(self):
+        return self.text[:60]
 
 
 class MealPlan(models.Model):
@@ -113,12 +141,6 @@ class MealPlan(models.Model):
     duration_days = models.IntegerField(
         help_text='Length of the meal plan in days.'
     )
-    plan_data = models.JSONField(
-        help_text=(
-            'Structured daily breakdown, e.g. '
-            '{"day_1": {"breakfast": {...}, "lunch": {...}, "dinner": {...}}}'
-        )
-    )
 
     class Meta:
         verbose_name = 'meal plan'
@@ -126,3 +148,36 @@ class MealPlan(models.Model):
 
     def __str__(self):
         return f"{self.user.email} – {self.duration_days}-day plan"
+
+
+class MealPlanDay(models.Model):
+    meal_plan = models.ForeignKey(
+        MealPlan, on_delete=models.CASCADE, related_name='days'
+    )
+    day_number = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['day_number']
+        constraints = [
+            models.UniqueConstraint(fields=['meal_plan', 'day_number'], name='uniq_mealplan_day_number')
+        ]
+
+    def __str__(self):
+        return f"{self.meal_plan} – day {self.day_number}"
+
+
+class MealPlanMeal(models.Model):
+    day = models.ForeignKey(
+        MealPlanDay, on_delete=models.CASCADE, related_name='meals'
+    )
+    meal_type = models.CharField(max_length=32)
+    recipe = models.ForeignKey(
+        SavedRecipe, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    recipe_title = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        ordering = ['day__day_number', 'meal_type']
+
+    def __str__(self):
+        return f"Day {self.day.day_number} {self.meal_type}: {self.recipe_title or (self.recipe.title if self.recipe else '')}"

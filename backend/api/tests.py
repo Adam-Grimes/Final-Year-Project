@@ -8,7 +8,16 @@ from PIL import Image
 from django.test import TestCase
 from django.db import IntegrityError
 
-from .models import User, UserProfile, SavedRecipe, MealPlan
+from .models import (
+    User,
+    UserProfile,
+    SavedRecipe,
+    RecipeIngredient,
+    RecipeStep,
+    MealPlan,
+    MealPlanDay,
+    MealPlanMeal,
+)
 from .serializers import RegisterSerializer, SavedRecipeSerializer
 
 class DetectIngredientsViewTests(APITestCase):
@@ -295,9 +304,9 @@ def make_user(email='user@example.com', password='testpass123'):
 
 
 SAMPLE_INGREDIENTS = [
-    {'name': 'pasta', 'amount': '200g'},
-    {'name': 'tomatoes', 'amount': '3'},
-    {'name': 'olive oil', 'amount': '2 tbsp'},
+    '200g pasta',
+    '3 tomatoes',
+    '2 tbsp olive oil',
 ]
 
 SAMPLE_STEPS = [
@@ -307,18 +316,32 @@ SAMPLE_STEPS = [
     'Combine and serve.',
 ]
 
-SAMPLE_PLAN_DATA = {
-    'day_1': {
-        'breakfast': {'title': 'Porridge', 'calories': 300},
-        'lunch':     {'title': 'Caesar Salad', 'calories': 420},
-        'dinner':    {'title': 'Grilled Chicken & Rice', 'calories': 650},
-    },
-    'day_2': {
-        'breakfast': {'title': 'Scrambled Eggs', 'calories': 350},
-        'lunch':     {'title': 'Tomato Soup', 'calories': 280},
-        'dinner':    {'title': 'Beef Stir-fry', 'calories': 700},
-    },
-}
+def make_saved_recipe(
+    *,
+    user,
+    title='Recipe',
+    ingredients=None,
+    steps=None,
+    calories=None,
+):
+    ingredients = ingredients if ingredients is not None else []
+    steps = steps if steps is not None else []
+
+    recipe = SavedRecipe.objects.create(user=user, title=title, calories=calories)
+
+    RecipeIngredient.objects.bulk_create(
+        [
+            RecipeIngredient(recipe=recipe, order=i, text=text)
+            for i, text in enumerate(ingredients, start=1)
+        ]
+    )
+    RecipeStep.objects.bulk_create(
+        [
+            RecipeStep(recipe=recipe, order=i, text=text)
+            for i, text in enumerate(steps, start=1)
+        ]
+    )
+    return recipe
 
 
 # User model tests
@@ -401,7 +424,7 @@ class SavedRecipeModelTest(TestCase):
 
     def setUp(self):
         self.user = make_user(email='recipe@example.com')
-        self.recipe = SavedRecipe.objects.create(
+        self.recipe = make_saved_recipe(
             user=self.user,
             title='Pasta Primavera',
             ingredients=SAMPLE_INGREDIENTS,
@@ -413,13 +436,15 @@ class SavedRecipeModelTest(TestCase):
         self.assertEqual(self.recipe.title, 'Pasta Primavera')
         self.assertEqual(self.recipe.calories, 450)
 
-    def test_ingredients_are_json_list(self):
-        self.assertIsInstance(self.recipe.ingredients, list)
-        self.assertEqual(self.recipe.ingredients[0]['name'], 'pasta')
+    def test_ingredients_are_stored_in_related_table(self):
+        self.assertEqual(self.recipe.ingredient_items.count(), len(SAMPLE_INGREDIENTS))
+        first = self.recipe.ingredient_items.order_by('order').first()
+        self.assertIsNotNone(first)
+        self.assertEqual(first.text, SAMPLE_INGREDIENTS[0])
 
-    def test_steps_are_json_list(self):
-        self.assertIsInstance(self.recipe.steps, list)
-        self.assertEqual(len(self.recipe.steps), 4)
+    def test_steps_are_stored_in_related_table(self):
+        self.assertEqual(self.recipe.step_items.count(), len(SAMPLE_STEPS))
+        self.assertEqual(self.recipe.step_items.order_by('order').count(), 4)
 
     def test_created_at_auto_populated(self):
         self.assertIsNotNone(self.recipe.created_at)
@@ -429,10 +454,12 @@ class SavedRecipeModelTest(TestCase):
         self.assertEqual(self.user.saved_recipes.count(), 1)
 
     def test_multiple_recipes_per_user(self):
-        SavedRecipe.objects.create(
-            user=self.user, title='Omelette',
-            ingredients=[{'name': 'eggs', 'amount': '3'}],
-            steps=['Crack eggs', 'Fry'], calories=210,
+        make_saved_recipe(
+            user=self.user,
+            title='Omelette',
+            ingredients=['3 eggs'],
+            steps=['Crack eggs', 'Fry'],
+            calories=210,
         )
         self.assertEqual(self.user.saved_recipes.count(), 2)
 
@@ -454,33 +481,41 @@ class MealPlanModelTest(TestCase):
         self.meal_plan = MealPlan.objects.create(
             user=self.user,
             duration_days=7,
-            plan_data=SAMPLE_PLAN_DATA,
         )
+        self.day_1 = MealPlanDay.objects.create(meal_plan=self.meal_plan, day_number=1)
+        self.day_2 = MealPlanDay.objects.create(meal_plan=self.meal_plan, day_number=2)
+
+        MealPlanMeal.objects.create(day=self.day_1, meal_type='breakfast', recipe_title='Porridge')
+        MealPlanMeal.objects.create(day=self.day_1, meal_type='lunch', recipe_title='Caesar Salad')
+        MealPlanMeal.objects.create(day=self.day_1, meal_type='dinner', recipe_title='Grilled Chicken & Rice')
+
+        MealPlanMeal.objects.create(day=self.day_2, meal_type='breakfast', recipe_title='Scrambled Eggs')
+        MealPlanMeal.objects.create(day=self.day_2, meal_type='lunch', recipe_title='Tomato Soup')
+        MealPlanMeal.objects.create(day=self.day_2, meal_type='dinner', recipe_title='Beef Stir-fry')
 
     def test_meal_plan_fields_stored_correctly(self):
         self.assertEqual(self.meal_plan.duration_days, 7)
 
-    def test_plan_data_is_dict(self):
-        self.assertIsInstance(self.meal_plan.plan_data, dict)
+    def test_has_days(self):
+        self.assertEqual(self.meal_plan.days.count(), 2)
+        self.assertTrue(self.meal_plan.days.filter(day_number=1).exists())
+        self.assertTrue(self.meal_plan.days.filter(day_number=2).exists())
 
-    def test_plan_data_contains_expected_days(self):
-        self.assertIn('day_1', self.meal_plan.plan_data)
-        self.assertIn('day_2', self.meal_plan.plan_data)
+    def test_days_have_expected_meals(self):
+        day = self.meal_plan.days.get(day_number=1)
+        meal_types = set(day.meals.values_list('meal_type', flat=True))
+        self.assertEqual(meal_types, {'breakfast', 'lunch', 'dinner'})
 
-    def test_plan_data_daily_structure(self):
-        day = self.meal_plan.plan_data['day_1']
-        self.assertIn('breakfast', day)
-        self.assertIn('lunch', day)
-        self.assertIn('dinner', day)
+    def test_day_number_unique_per_plan(self):
+        with self.assertRaises(IntegrityError):
+            MealPlanDay.objects.create(meal_plan=self.meal_plan, day_number=1)
 
     def test_many_to_one_relationship(self):
         self.assertEqual(self.meal_plan.user, self.user)
         self.assertEqual(self.user.meal_plans.count(), 1)
 
     def test_multiple_meal_plans_per_user(self):
-        MealPlan.objects.create(
-            user=self.user, duration_days=3, plan_data={'day_1': {}}
-        )
+        MealPlan.objects.create(user=self.user, duration_days=3)
         self.assertEqual(self.user.meal_plans.count(), 2)
 
     def test_meal_plan_deleted_when_user_deleted(self):
@@ -548,7 +583,7 @@ class SavedRecipeSerializerTests(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
     def test_output_contains_expected_fields(self):
-        recipe = SavedRecipe.objects.create(
+        recipe = make_saved_recipe(
             user=self.user,
             title='Check Fields',
             ingredients=SAMPLE_INGREDIENTS,
@@ -560,11 +595,13 @@ class SavedRecipeSerializerTests(TestCase):
             self.assertIn(field, data)
         # State: serialized title matches what was saved
         self.assertEqual(data['title'], 'Check Fields')
+        self.assertIsInstance(data['ingredients'], list)
+        self.assertIsInstance(data['steps'], list)
 
     def test_id_and_created_at_are_read_only(self):
         # Providing these fields in input should not cause validation errors,
         # but the serializer must not honour them as writable.
-        recipe = SavedRecipe.objects.create(
+        recipe = make_saved_recipe(
             user=self.user,
             title='Read Only Check',
             ingredients=SAMPLE_INGREDIENTS,
@@ -703,13 +740,19 @@ class SavedRecipeAPITests(APITestCase):
 
     def test_get_returns_only_own_recipes(self):
         self._auth()
-        SavedRecipe.objects.create(
-            user=self.user, title='Mine',
-            ingredients=SAMPLE_INGREDIENTS, steps=SAMPLE_STEPS, calories=400,
+        make_saved_recipe(
+            user=self.user,
+            title='Mine',
+            ingredients=SAMPLE_INGREDIENTS,
+            steps=SAMPLE_STEPS,
+            calories=400,
         )
-        SavedRecipe.objects.create(
-            user=self.other_user, title='Theirs',
-            ingredients=SAMPLE_INGREDIENTS, steps=SAMPLE_STEPS, calories=400,
+        make_saved_recipe(
+            user=self.other_user,
+            title='Theirs',
+            ingredients=SAMPLE_INGREDIENTS,
+            steps=SAMPLE_STEPS,
+            calories=400,
         )
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -737,9 +780,12 @@ class SavedRecipeAPITests(APITestCase):
 
     def test_post_recipe_appears_in_subsequent_get(self):
         self._auth()
-        SavedRecipe.objects.create(
-            user=self.user, title='Persistent Recipe',
-            ingredients=SAMPLE_INGREDIENTS, steps=SAMPLE_STEPS, calories=600,
+        make_saved_recipe(
+            user=self.user,
+            title='Persistent Recipe',
+            ingredients=SAMPLE_INGREDIENTS,
+            steps=SAMPLE_STEPS,
+            calories=600,
         )
         response = self.client.get(self.list_url)
         titles = [r['title'] for r in response.data]
@@ -756,9 +802,12 @@ class SavedRecipeAPITests(APITestCase):
 
     def test_delete_removes_recipe_from_db(self):
         self._auth()
-        recipe = SavedRecipe.objects.create(
-            user=self.user, title='To Delete',
-            ingredients=SAMPLE_INGREDIENTS, steps=SAMPLE_STEPS, calories=300,
+        recipe = make_saved_recipe(
+            user=self.user,
+            title='To Delete',
+            ingredients=SAMPLE_INGREDIENTS,
+            steps=SAMPLE_STEPS,
+            calories=300,
         )
         detail_url = reverse('saved-recipe-detail', kwargs={'pk': recipe.pk})
         response = self.client.delete(detail_url)
@@ -768,9 +817,12 @@ class SavedRecipeAPITests(APITestCase):
 
     def test_delete_other_users_recipe_returns_404_and_leaves_record_intact(self):
         self._auth()
-        recipe = SavedRecipe.objects.create(
-            user=self.other_user, title='Not Mine',
-            ingredients=SAMPLE_INGREDIENTS, steps=SAMPLE_STEPS, calories=300,
+        recipe = make_saved_recipe(
+            user=self.other_user,
+            title='Not Mine',
+            ingredients=SAMPLE_INGREDIENTS,
+            steps=SAMPLE_STEPS,
+            calories=300,
         )
         detail_url = reverse('saved-recipe-detail', kwargs={'pk': recipe.pk})
         response = self.client.delete(detail_url)

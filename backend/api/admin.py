@@ -2,7 +2,11 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import User, UserProfile, SavedRecipe, MealPlan
+from .models import (
+    User, UserProfile,
+    SavedRecipe, RecipeIngredient, RecipeStep,
+    MealPlan, MealPlanDay, MealPlanMeal,
+)
 
 
 @admin.register(User)
@@ -36,7 +40,31 @@ class SavedRecipeAdmin(admin.ModelAdmin):
     readonly_fields = ['created_at']
 
 
+@admin.register(RecipeIngredient)
+class RecipeIngredientAdmin(admin.ModelAdmin):
+    list_display = ['recipe', 'order', 'text']
+    search_fields = ['recipe__title', 'text']
+
+
+@admin.register(RecipeStep)
+class RecipeStepAdmin(admin.ModelAdmin):
+    list_display = ['recipe', 'order']
+    search_fields = ['recipe__title', 'text']
+
+
 @admin.register(MealPlan)
 class MealPlanAdmin(admin.ModelAdmin):
     list_display = ['user', 'duration_days']
     search_fields = ['user__email']
+
+
+@admin.register(MealPlanDay)
+class MealPlanDayAdmin(admin.ModelAdmin):
+    list_display = ['meal_plan', 'day_number']
+    search_fields = ['meal_plan__user__email']
+
+
+@admin.register(MealPlanMeal)
+class MealPlanMealAdmin(admin.ModelAdmin):
+    list_display = ['day', 'meal_type', 'recipe', 'recipe_title']
+    search_fields = ['day__meal_plan__user__email', 'recipe_title', 'recipe__title']
