@@ -1,6 +1,8 @@
 name: frontend and backend tests
 
 on:
+  push:
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
