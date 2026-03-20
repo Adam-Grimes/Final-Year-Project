@@ -830,7 +830,13 @@ function MainApp() {
       });
       const data = await res.json();
       if (res.ok) {
-        setGeneratedRecipes(data.recipes || []);
+        const recipes = Array.isArray(data.recipes) ? data.recipes : [];
+        if (recipes.length === 0) {
+          Alert.alert('No recipes generated', 'Prep could not generate recipes this time. Please try again.');
+          return;
+        }
+
+        setGeneratedRecipes(recipes);
         navigate('recipeSelect');
       } else {
         Alert.alert('Error', data.error || 'Recipe generation failed.');

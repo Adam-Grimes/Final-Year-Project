@@ -299,6 +299,24 @@ class GenerateRecipeViewTests(APITestCase):
         self.assertIn('recipes', response.data)
 
     @patch('api.views.gemini_model')
+    def test_generate_recipe_empty_recipes_returns_502(self, mock_gemini):
+        """
+        State test: an empty recipes payload from Gemini should be treated as
+        a failed generation, not a successful empty result.
+        """
+        mock_gemini_response = MagicMock()
+        mock_gemini_response.text = json.dumps({"recipes": []})
+        mock_gemini.generate_content.return_value = mock_gemini_response
+
+        response = self.client.post(self.url, {"ingredients": ["tomato"]}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(
+            response.data['error'],
+            'Recipe generation returned no recipes. Please try again.',
+        )
+
+    @patch('api.views.gemini_model')
     def test_generate_recipe_malformed_json_returns_500(self, mock_gemini):
         """
         State test: when Gemini returns non-JSON, the view should return 500.

@@ -271,6 +271,13 @@ Rules:
             )
 
             data = json.loads(response.text)
+            recipes = data.get("recipes")
+            if not isinstance(recipes, list) or len(recipes) == 0:
+                return Response(
+                    {"error": "Recipe generation returned no recipes. Please try again."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
             return Response(data, status=status.HTTP_200_OK)
 
         except Exception as e:
