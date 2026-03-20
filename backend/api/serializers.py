@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import SavedRecipe, RecipeIngredient, RecipeStep
+from .models import SavedRecipe, RecipeIngredient, RecipeStep, UserProfile
 
 User = get_user_model()
 
@@ -87,3 +87,51 @@ class SavedRecipeSerializer(serializers.ModelSerializer):
         data['ingredients'] = [i.text for i in instance.ingredient_items.all().order_by('order')]
         data['steps'] = [s.text for s in instance.step_items.all().order_by('order')]
         return data
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    @staticmethod
+    def _normalize_csv(value):
+        if not value:
+            return ''
+
+        seen = set()
+        items = []
+        for part in str(value).split(','):
+            cleaned = part.strip()
+            if not cleaned:
+                continue
+
+            dedupe_key = cleaned.casefold()
+            if dedupe_key in seen:
+                continue
+
+            seen.add(dedupe_key)
+            items.append(cleaned)
+
+        return ', '.join(items)
+
+    class Meta:
+        model = UserProfile
+        fields = (
+            'email', 'calorie_goal',
+            'allergies', 'dietary_restrictions', 'cuisine_preferences',
+            'cooking_skill', 'custom_preferences',
+        )
+        read_only_fields = ('email',)
+
+    def validate_allergies(self, value):
+        return self._normalize_csv(value)
+
+    def validate_dietary_restrictions(self, value):
+        return self._normalize_csv(value)
+
+    def validate_cuisine_preferences(self, value):
+        return self._normalize_csv(value)
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(required=True, write_only=True, min_length=6)

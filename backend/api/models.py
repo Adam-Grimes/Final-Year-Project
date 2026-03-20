@@ -58,13 +58,21 @@ class UserProfile(models.Model):
         blank=True, default='',
         help_text='Comma-separated list of allergies (e.g. peanuts, shellfish).'
     )
-    dietary_restrictions = models.CharField(
-        max_length=100, blank=True, default='',
-        help_text='Specific diet type (e.g. Vegan, Halal).'
+    dietary_restrictions = models.TextField(
+        blank=True, default='',
+        help_text='Comma-separated list of dietary preferences (e.g. Vegan, Halal).'
     )
     cuisine_preferences = models.TextField(
         blank=True, default='',
-        help_text='Comma-separated list of preferred cuisines (e.g. Italian, Mexican).'
+        help_text='Comma-separated list of preferred cuisines (e.g. Irish Traditional, Italian).'
+    )
+    cooking_skill = models.CharField(
+        max_length=20, blank=True, default='Intermediate',
+        help_text='Cooking skill level (Beginner, Intermediate, Chef Level).'
+    )
+    custom_preferences = models.TextField(
+        blank=True, default='',
+        help_text='Free-text additional preferences.'
     )
 
     class Meta:
@@ -73,6 +81,17 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.email}'s profile"
+
+
+class PasswordResetToken(models.Model):
+    """Temporary token for password reset flow."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reset_tokens')
+    token = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_used = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
 
 
 class SavedRecipe(models.Model):
