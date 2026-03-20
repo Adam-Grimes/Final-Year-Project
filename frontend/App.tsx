@@ -78,6 +78,258 @@ const DEFAULT_PREFS: Preferences = {
   customText: '',
 };
 
+const normalizePreferenceList = (items: unknown): string[] => {
+  if (!Array.isArray(items)) return [];
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  items.forEach(item => {
+    const cleaned = String(item ?? '').trim();
+    if (!cleaned) return;
+
+    const dedupeKey = cleaned.toLowerCase();
+    if (seen.has(dedupeKey)) return;
+
+    seen.add(dedupeKey);
+    normalized.push(cleaned);
+  });
+
+  return normalized;
+};
+
+const parsePreferenceCsv = (value: unknown): string[] =>
+  normalizePreferenceList(
+    typeof value === 'string' ? value.split(',') : []
+  );
+
+const normalizePreferences = (prefs: Partial<Preferences> | null | undefined): Preferences => ({
+  cuisines: normalizePreferenceList(prefs?.cuisines ?? []),
+  dietary: normalizePreferenceList(prefs?.dietary ?? []),
+  allergies: normalizePreferenceList(prefs?.allergies ?? []),
+  calorieGoal: typeof prefs?.calorieGoal === 'number' && prefs.calorieGoal > 0
+    ? prefs.calorieGoal
+    : DEFAULT_PREFS.calorieGoal,
+  cookingSkill: typeof prefs?.cookingSkill === 'string' && prefs.cookingSkill.trim()
+    ? prefs.cookingSkill.trim()
+    : DEFAULT_PREFS.cookingSkill,
+  customText: typeof prefs?.customText === 'string' ? prefs.customText : DEFAULT_PREFS.customText,
+});
+
+type ListPreferenceKey = 'cuisines' | 'dietary' | 'allergies';
+
+const ToggleChip = ({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) => (
+  <TouchableOpacity
+    style={[styles.chip, selected && styles.chipSelected]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
+  </TouchableOpacity>
+);
+
+interface PreferencesSectionProps {
+  compact?: boolean;
+  preferences: Preferences;
+  customCuisineText: string;
+  customDietaryText: string;
+  customAllergyText: string;
+  customCalorieText: string;
+  setCustomCuisineText: (value: string) => void;
+  setCustomDietaryText: (value: string) => void;
+  setCustomAllergyText: (value: string) => void;
+  setCustomCalorieText: (value: string) => void;
+  updatePref: (key: keyof Preferences, value: Preferences[keyof Preferences]) => void;
+  toggleList: (list: string[], value: string) => string[];
+  addCustomPrefItem: (
+    key: ListPreferenceKey,
+    value: string,
+    clearFn: () => void,
+  ) => void;
+}
+
+const PreferencesSection = ({
+  compact = false,
+  preferences,
+  customCuisineText,
+  customDietaryText,
+  customAllergyText,
+  customCalorieText,
+  setCustomCuisineText,
+  setCustomDietaryText,
+  setCustomAllergyText,
+  setCustomCalorieText,
+  updatePref,
+  toggleList,
+  addCustomPrefItem,
+}: PreferencesSectionProps) => (
+  <View>
+    <Text style={styles.prefsSectionTitle}>Cuisine Style</Text>
+    <View style={styles.chipRow}>
+      {preferences.cuisines
+        .filter(c => !CUISINE_OPTIONS.includes(c))
+        .map(c => (
+          <ToggleChip
+            key={c}
+            label={c}
+            selected
+            onPress={() => updatePref('cuisines', preferences.cuisines.filter(x => x !== c))}
+          />
+        ))}
+      {CUISINE_OPTIONS.map(c => (
+        <ToggleChip
+          key={c}
+          label={c}
+          selected={preferences.cuisines.includes(c)}
+          onPress={() => updatePref('cuisines', toggleList(preferences.cuisines, c))}
+        />
+      ))}
+    </View>
+    <View style={styles.inputRow}>
+      <TextInput
+        style={styles.input}
+        placeholder="Add custom cuisine..."
+        value={customCuisineText}
+        onChangeText={setCustomCuisineText}
+        onSubmitEditing={() => addCustomPrefItem('cuisines', customCuisineText, () => setCustomCuisineText(''))}
+      />
+      <TouchableOpacity
+        style={styles.addBtn}
+        onPress={() => addCustomPrefItem('cuisines', customCuisineText, () => setCustomCuisineText(''))}
+      >
+        <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 20 }}>+</Text>
+      </TouchableOpacity>
+    </View>
+
+    <Text style={styles.prefsSectionTitle}>Dietary</Text>
+    <View style={styles.chipRow}>
+      {preferences.dietary
+        .filter(d => !DIETARY_OPTIONS.includes(d))
+        .map(d => (
+          <ToggleChip
+            key={d}
+            label={d}
+            selected
+            onPress={() => updatePref('dietary', preferences.dietary.filter(x => x !== d))}
+          />
+        ))}
+      {DIETARY_OPTIONS.map(d => (
+        <ToggleChip
+          key={d}
+          label={d}
+          selected={preferences.dietary.includes(d)}
+          onPress={() => updatePref('dietary', toggleList(preferences.dietary, d))}
+        />
+      ))}
+    </View>
+    <View style={styles.inputRow}>
+      <TextInput
+        style={styles.input}
+        placeholder="Add custom dietary requirement..."
+        value={customDietaryText}
+        onChangeText={setCustomDietaryText}
+        onSubmitEditing={() => addCustomPrefItem('dietary', customDietaryText, () => setCustomDietaryText(''))}
+      />
+      <TouchableOpacity
+        style={styles.addBtn}
+        onPress={() => addCustomPrefItem('dietary', customDietaryText, () => setCustomDietaryText(''))}
+      >
+        <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 20 }}>+</Text>
+      </TouchableOpacity>
+    </View>
+
+    <Text style={styles.prefsSectionTitle}>Allergies & Intolerances</Text>
+    <View style={styles.chipRow}>
+      {preferences.allergies
+        .filter(a => !ALLERGY_OPTIONS.includes(a))
+        .map(a => (
+          <ToggleChip
+            key={a}
+            label={a}
+            selected
+            onPress={() => updatePref('allergies', preferences.allergies.filter(x => x !== a))}
+          />
+        ))}
+      {ALLERGY_OPTIONS.map(a => (
+        <ToggleChip
+          key={a}
+          label={a}
+          selected={preferences.allergies.includes(a)}
+          onPress={() => updatePref('allergies', toggleList(preferences.allergies, a))}
+        />
+      ))}
+    </View>
+    <View style={styles.inputRow}>
+      <TextInput
+        style={styles.input}
+        placeholder="Add custom allergy..."
+        value={customAllergyText}
+        onChangeText={setCustomAllergyText}
+        onSubmitEditing={() => addCustomPrefItem('allergies', customAllergyText, () => setCustomAllergyText(''))}
+      />
+      <TouchableOpacity
+        style={styles.addBtn}
+        onPress={() => addCustomPrefItem('allergies', customAllergyText, () => setCustomAllergyText(''))}
+      >
+        <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 20 }}>+</Text>
+      </TouchableOpacity>
+    </View>
+
+    {!compact && (
+      <>
+        <Text style={styles.prefsSectionTitle}>Daily Calorie Goal</Text>
+        <View style={styles.inputRow}>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 2000"
+            value={customCalorieText || String(preferences.calorieGoal)}
+            onChangeText={t => {
+              setCustomCalorieText(t);
+              const calorieValue = parseInt(t, 10);
+              if (!isNaN(calorieValue) && calorieValue > 0) updatePref('calorieGoal', calorieValue);
+            }}
+            keyboardType="number-pad"
+          />
+          <View style={[styles.addBtn, { backgroundColor: '#64748B', justifyContent: 'center', alignItems: 'center' }]}>
+            <Text style={{ color: 'white', fontSize: 11, fontWeight: '600', textAlign: 'center' }}>
+              kcal
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.prefsSectionTitle}>Cooking Skill</Text>
+        <View style={styles.chipRow}>
+          {COOKING_SKILLS.map(skill => (
+            <ToggleChip
+              key={skill}
+              label={skill}
+              selected={preferences.cookingSkill === skill}
+              onPress={() => updatePref('cookingSkill', skill)}
+            />
+          ))}
+        </View>
+
+        <Text style={styles.prefsSectionTitle}>Instructions (optional)</Text>
+        <TextInput
+          style={[styles.input, { marginTop: 4, minHeight: 60, textAlignVertical: 'top', marginRight: 0 }]}
+          placeholder="e.g. one-pot meals only, no spicy food..."
+          value={preferences.customText}
+          onChangeText={t => updatePref('customText', t)}
+          multiline
+        />
+      </>
+    )}
+  </View>
+);
+
 // --- MAIN APP ---
 function MainApp() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -106,18 +358,11 @@ function MainApp() {
   const [customDietaryText, setCustomDietaryText] = useState('');
   const [customAllergyText, setCustomAllergyText] = useState('');
   const [customCalorieText, setCustomCalorieText] = useState('');
-  const [prefsSnapshot, setPrefsSnapshot] = useState<Preferences | null>(null);
+  const didInitPreferenceAutosave = useRef(false);
+  const preferenceSyncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const openPrefsModal = () => {
-    setPrefsSnapshot({ ...preferences });
-    setShowPrefsModal(true);
-  };
-
-  const cancelPrefsModal = () => {
-    if (prefsSnapshot) setPreferences(prefsSnapshot);
-    setPrefsSnapshot(null);
-    setShowPrefsModal(false);
-  };
+  const openPrefsModal = () => setShowPrefsModal(true);
+  const closePrefsModal = () => setShowPrefsModal(false);
 
   // Recipes
   const [generatedRecipes, setGeneratedRecipes] = useState<Recipe[]>([]);
@@ -167,6 +412,33 @@ function MainApp() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!didInitPreferenceAutosave.current) {
+      didInitPreferenceAutosave.current = true;
+      return;
+    }
+
+    void saveLocalPreferences(preferences);
+
+    if (!authToken) return;
+
+    if (preferenceSyncTimeout.current) {
+      clearTimeout(preferenceSyncTimeout.current);
+    }
+
+    preferenceSyncTimeout.current = setTimeout(() => {
+      void syncPreferencesToBackend(preferences);
+      preferenceSyncTimeout.current = null;
+    }, 600);
+
+    return () => {
+      if (preferenceSyncTimeout.current) {
+        clearTimeout(preferenceSyncTimeout.current);
+        preferenceSyncTimeout.current = null;
+      }
+    };
+  }, [preferences]);
+
   const loadSavedRecipes = async () => {
     try {
       const stored = await AsyncStorage.getItem(STORAGE_KEY);
@@ -177,7 +449,11 @@ function MainApp() {
   const loadLocalPreferences = async () => {
     try {
       const stored = await AsyncStorage.getItem(PREFS_KEY);
-      if (stored) setPreferences(JSON.parse(stored));
+      if (stored) {
+        const normalized = normalizePreferences(JSON.parse(stored));
+        setPreferences(normalized);
+        await saveLocalPreferences(normalized);
+      }
     } catch {}
   };
 
@@ -372,27 +648,21 @@ function MainApp() {
       });
       if (res.ok) {
         const data = await res.json();
-        const prefs: Preferences = {
-          cuisines: data.cuisine_preferences
-            ? data.cuisine_preferences.split(',').map((s: string) => s.trim()).filter(Boolean)
-            : [],
-          dietary: data.dietary_restrictions
-            ? data.dietary_restrictions.split(',').map((s: string) => s.trim()).filter(Boolean)
-            : [],
-          allergies: data.allergies
-            ? data.allergies.split(',').map((s: string) => s.trim()).filter(Boolean)
-            : [],
+        const prefs = normalizePreferences({
+          cuisines: parsePreferenceCsv(data.cuisine_preferences),
+          dietary: parsePreferenceCsv(data.dietary_restrictions),
+          allergies: parsePreferenceCsv(data.allergies),
           calorieGoal: data.calorie_goal || 2000,
           cookingSkill: data.cooking_skill || 'Intermediate',
           customText: data.custom_preferences || '',
-        };
+        });
         setPreferences(prefs);
         await saveLocalPreferences(prefs);
       }
     } catch {}
   };
 
-  const saveProfile = async () => {
+  const syncPreferencesToBackend = async (prefs: Preferences) => {
     if (!authToken) return;
     setProfileLoading(true);
     try {
@@ -400,22 +670,18 @@ function MainApp() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({
-          calorie_goal: preferences.calorieGoal,
-          allergies: preferences.allergies.join(', '),
-          dietary_restrictions: preferences.dietary.join(', '),
-          cuisine_preferences: preferences.cuisines.join(', '),
-          cooking_skill: preferences.cookingSkill,
-          custom_preferences: preferences.customText,
+          calorie_goal: prefs.calorieGoal,
+          allergies: prefs.allergies.join(', '),
+          dietary_restrictions: prefs.dietary.join(', '),
+          cuisine_preferences: prefs.cuisines.join(', '),
+          cooking_skill: prefs.cookingSkill,
+          custom_preferences: prefs.customText,
         }),
       });
       if (res.ok) {
-        await saveLocalPreferences(preferences);
-        Alert.alert('Saved!', 'Your profile has been updated.');
-      } else {
-        Alert.alert('Error', 'Could not save profile.');
+        await saveLocalPreferences(prefs);
       }
     } catch {
-      Alert.alert('Error', 'Connection error.');
     } finally {
       setProfileLoading(false);
     }
@@ -581,22 +847,12 @@ function MainApp() {
     list.includes(value) ? list.filter(v => v !== value) : [...list, value];
 
   const updatePref = (key: keyof Preferences, value: any) => {
-    setPreferences(prev => ({ ...prev, [key]: value }));
+    setPreferences(prev => normalizePreferences({ ...prev, [key]: value }));
   };
 
   // =========================================================================
   // SUB-COMPONENTS
   // =========================================================================
-
-  const ToggleChip = ({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) => (
-    <TouchableOpacity
-      style={[styles.chip, selected && styles.chipSelected]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
-    </TouchableOpacity>
-  );
 
   const AppHeader = ({
     title,
@@ -640,132 +896,6 @@ function MainApp() {
     }
     clearFn();
   };
-
-  const PreferencesSection = ({ compact = false }: { compact?: boolean }) => (
-    <View>
-      <Text style={styles.prefsSectionTitle}>Cuisine Style</Text>
-      <View style={styles.chipRow}>
-        {preferences.cuisines
-          .filter(c => !CUISINE_OPTIONS.includes(c))
-          .map(c => (
-            <ToggleChip key={c} label={c} selected
-              onPress={() => updatePref('cuisines', preferences.cuisines.filter(x => x !== c))} />
-          ))}
-        {CUISINE_OPTIONS.map(c => (
-          <ToggleChip key={c} label={c} selected={preferences.cuisines.includes(c)}
-            onPress={() => updatePref('cuisines', toggleList(preferences.cuisines, c))} />
-        ))}
-      </View>
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Add custom cuisine..."
-          value={customCuisineText}
-          onChangeText={setCustomCuisineText}
-          onSubmitEditing={() => addCustomPrefItem('cuisines', customCuisineText, () => setCustomCuisineText(''))}
-        />
-        <TouchableOpacity style={styles.addBtn}
-          onPress={() => addCustomPrefItem('cuisines', customCuisineText, () => setCustomCuisineText(''))}>
-          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 20 }}>+</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.prefsSectionTitle}>Dietary</Text>
-      <View style={styles.chipRow}>
-        {preferences.dietary
-          .filter(d => !DIETARY_OPTIONS.includes(d))
-          .map(d => (
-            <ToggleChip key={d} label={d} selected
-              onPress={() => updatePref('dietary', preferences.dietary.filter(x => x !== d))} />
-          ))}
-        {DIETARY_OPTIONS.map(d => (
-          <ToggleChip key={d} label={d} selected={preferences.dietary.includes(d)}
-            onPress={() => updatePref('dietary', toggleList(preferences.dietary, d))} />
-        ))}
-      </View>
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Add custom dietary requirement..."
-          value={customDietaryText}
-          onChangeText={setCustomDietaryText}
-          onSubmitEditing={() => addCustomPrefItem('dietary', customDietaryText, () => setCustomDietaryText(''))}
-        />
-        <TouchableOpacity style={styles.addBtn}
-          onPress={() => addCustomPrefItem('dietary', customDietaryText, () => setCustomDietaryText(''))}>
-          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 20 }}>+</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.prefsSectionTitle}>Allergies & Intolerances</Text>
-      <View style={styles.chipRow}>
-        {preferences.allergies
-          .filter(a => !ALLERGY_OPTIONS.includes(a))
-          .map(a => (
-            <ToggleChip key={a} label={a} selected
-              onPress={() => updatePref('allergies', preferences.allergies.filter(x => x !== a))} />
-          ))}
-        {ALLERGY_OPTIONS.map(a => (
-          <ToggleChip key={a} label={a} selected={preferences.allergies.includes(a)}
-            onPress={() => updatePref('allergies', toggleList(preferences.allergies, a))} />
-        ))}
-      </View>
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Add custom allergy..."
-          value={customAllergyText}
-          onChangeText={setCustomAllergyText}
-          onSubmitEditing={() => addCustomPrefItem('allergies', customAllergyText, () => setCustomAllergyText(''))}
-        />
-        <TouchableOpacity style={styles.addBtn}
-          onPress={() => addCustomPrefItem('allergies', customAllergyText, () => setCustomAllergyText(''))}>
-          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 20 }}>+</Text>
-        </TouchableOpacity>
-      </View>
-
-      {!compact && (
-        <>
-          <Text style={styles.prefsSectionTitle}>Daily Calorie Goal</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 2000"
-              value={customCalorieText || String(preferences.calorieGoal)}
-              onChangeText={t => {
-                setCustomCalorieText(t);
-                const n = parseInt(t);
-                if (!isNaN(n) && n > 0) updatePref('calorieGoal', n);
-              }}
-              keyboardType="number-pad"
-            />
-            <View style={[styles.addBtn, { backgroundColor: '#64748B', justifyContent: 'center', alignItems: 'center' }]}>
-              <Text style={{ color: 'white', fontSize: 11, fontWeight: '600', textAlign: 'center' }}>
-                kcal
-              </Text>
-            </View>
-          </View>
-
-          <Text style={styles.prefsSectionTitle}>Cooking Skill</Text>
-          <View style={styles.chipRow}>
-            {COOKING_SKILLS.map(s => (
-              <ToggleChip key={s} label={s} selected={preferences.cookingSkill === s}
-                onPress={() => updatePref('cookingSkill', s)} />
-            ))}
-          </View>
-
-          <Text style={styles.prefsSectionTitle}>Extra Notes (optional)</Text>
-          <TextInput
-            style={[styles.input, { marginTop: 4, minHeight: 60, textAlignVertical: 'top', marginRight: 0 }]}
-            placeholder="e.g. one-pot meals only, no spicy food..."
-            value={preferences.customText}
-            onChangeText={t => updatePref('customText', t)}
-            multiline
-          />
-        </>
-      )}
-    </View>
-  );
 
   // =========================================================================
   // SCREENS
@@ -896,21 +1026,30 @@ function MainApp() {
         <Modal visible={showPrefsModal} animationType="slide" presentationStyle="pageSheet">
           <SafeAreaView style={styles.container}>
             <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={cancelPrefsModal}>
-                <Text style={styles.modalCancel}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={styles.modalHeaderSpacer} />
               <Text style={styles.modalTitle}>Your Preferences</Text>
-              <TouchableOpacity onPress={async () => {
-                setPrefsSnapshot(null);
-                await saveLocalPreferences(preferences);
-                if (authToken) saveProfile();
-                setShowPrefsModal(false);
-              }}>
-                <Text style={styles.modalDone}>Save</Text>
+              <TouchableOpacity onPress={closePrefsModal}>
+                <Text style={styles.modalDone}>Done</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-              <PreferencesSection />
+            <ScrollView
+              contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              <PreferencesSection
+                preferences={preferences}
+                customCuisineText={customCuisineText}
+                customDietaryText={customDietaryText}
+                customAllergyText={customAllergyText}
+                customCalorieText={customCalorieText}
+                setCustomCuisineText={setCustomCuisineText}
+                setCustomDietaryText={setCustomDietaryText}
+                setCustomAllergyText={setCustomAllergyText}
+                setCustomCalorieText={setCustomCalorieText}
+                updatePref={updatePref}
+                toggleList={toggleList}
+                addCustomPrefItem={addCustomPrefItem}
+              />
             </ScrollView>
           </SafeAreaView>
         </Modal>
@@ -979,7 +1118,7 @@ function MainApp() {
                   )}
                 </ScrollView>
               </View>
-              <TouchableOpacity onPress={() => setShowPrefsModal(true)} style={styles.prefsEditBtn}>
+              <TouchableOpacity onPress={openPrefsModal} style={styles.prefsEditBtn}>
                 <Text style={styles.prefsEditText}>Adjust</Text>
               </TouchableOpacity>
             </View>
@@ -1042,19 +1181,33 @@ function MainApp() {
         <Modal visible={showPrefsModal} animationType="slide" presentationStyle="pageSheet">
           <SafeAreaView style={styles.container}>
             <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={cancelPrefsModal}>
-                <Text style={styles.modalCancel}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={styles.modalHeaderSpacer} />
               <Text style={styles.modalTitle}>Adjust Preferences</Text>
-              <TouchableOpacity onPress={() => { setPrefsSnapshot(null); setShowPrefsModal(false); }}>
+              <TouchableOpacity onPress={closePrefsModal}>
                 <Text style={styles.modalDone}>Done</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+            <ScrollView
+              contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+              keyboardShouldPersistTaps="handled"
+            >
               <Text style={{ color: '#64748B', fontSize: 13, marginBottom: 16 }}>
                 These preferences will shape your recipe suggestions.
               </Text>
-              <PreferencesSection compact />
+              <PreferencesSection
+                preferences={preferences}
+                customCuisineText={customCuisineText}
+                customDietaryText={customDietaryText}
+                customAllergyText={customAllergyText}
+                customCalorieText={customCalorieText}
+                setCustomCuisineText={setCustomCuisineText}
+                setCustomDietaryText={setCustomDietaryText}
+                setCustomAllergyText={setCustomAllergyText}
+                setCustomCalorieText={setCustomCalorieText}
+                updatePref={updatePref}
+                toggleList={toggleList}
+                addCustomPrefItem={addCustomPrefItem}
+              />
             </ScrollView>
           </SafeAreaView>
         </Modal>
@@ -1427,29 +1580,32 @@ function MainApp() {
     case 'profile': return (
       <SafeAreaView style={styles.container}>
         <AppHeader title="My Profile" showBack={false} />
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}>
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
+          keyboardShouldPersistTaps="handled"
+        >
 
-          <View style={styles.profileCard}>
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>
-                {authEmail ? authEmail[0].toUpperCase() : 'U'}
-              </Text>
-            </View>
-            <Text style={styles.profileEmail}>{authEmail}</Text>
-          </View>
-
-          <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Food Preferences</Text>
-          <PreferencesSection />
+          <Text style={styles.sectionTitle}>Food Preferences</Text>
+          <PreferencesSection
+            preferences={preferences}
+            customCuisineText={customCuisineText}
+            customDietaryText={customDietaryText}
+            customAllergyText={customAllergyText}
+            customCalorieText={customCalorieText}
+            setCustomCuisineText={setCustomCuisineText}
+            setCustomDietaryText={setCustomDietaryText}
+            setCustomAllergyText={setCustomAllergyText}
+            setCustomCalorieText={setCustomCalorieText}
+            updatePref={updatePref}
+            toggleList={toggleList}
+            addCustomPrefItem={addCustomPrefItem}
+          />
 
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: '#10B981', marginTop: 20 }]}
-            onPress={saveProfile}
-            disabled={profileLoading}
+            onPress={goBack}
           >
-            {profileLoading
-              ? <ActivityIndicator color="white" />
-              : <Text style={styles.btnText}>Save Profile</Text>
-            }
+            <Text style={styles.btnText}>Done</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1654,11 +1810,6 @@ const styles = StyleSheet.create({
   devTokenNote:  { fontSize: 11, color: '#92400E', textAlign: 'center' },
 
   // Profile
-  profileCard:       { backgroundColor: C.primary, borderRadius: 20, padding: 24, alignItems: 'center', marginBottom: 20, elevation: 3 },
-  profileAvatar:     { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  profileAvatarText: { fontSize: 32, fontWeight: '800', color: 'white' },
-  profileEmail:      { color: 'rgba(255,255,255,0.9)', fontSize: 14 },
-
   // Preferences
   prefsSectionTitle: { fontSize: 14, fontWeight: '700', color: C.dark, marginTop: 16, marginBottom: 8 },
   chipRow:           { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -1681,6 +1832,7 @@ const styles = StyleSheet.create({
 
   // Modal
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.card },
+  modalHeaderSpacer: { width: 48 },
   modalTitle:  { fontSize: 18, fontWeight: '800', color: '#1E293B' },
   modalDone:   { color: C.primary, fontWeight: '700', fontSize: 16 },
   modalCancel: { color: C.red, fontWeight: '600', fontSize: 16 },

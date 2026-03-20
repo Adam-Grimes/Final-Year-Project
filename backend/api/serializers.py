@@ -92,6 +92,27 @@ class SavedRecipeSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
 
+    @staticmethod
+    def _normalize_csv(value):
+        if not value:
+            return ''
+
+        seen = set()
+        items = []
+        for part in str(value).split(','):
+            cleaned = part.strip()
+            if not cleaned:
+                continue
+
+            dedupe_key = cleaned.casefold()
+            if dedupe_key in seen:
+                continue
+
+            seen.add(dedupe_key)
+            items.append(cleaned)
+
+        return ', '.join(items)
+
     class Meta:
         model = UserProfile
         fields = (
@@ -100,6 +121,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'cooking_skill', 'custom_preferences',
         )
         read_only_fields = ('email',)
+
+    def validate_allergies(self, value):
+        return self._normalize_csv(value)
+
+    def validate_dietary_restrictions(self, value):
+        return self._normalize_csv(value)
+
+    def validate_cuisine_preferences(self, value):
+        return self._normalize_csv(value)
 
 
 class ChangePasswordSerializer(serializers.Serializer):

@@ -10,12 +10,12 @@ describe('<App />', () => {
 
   it('renders the home screen correctly', () => {
     const { getByText } = render(<App />);
-    
-    // Check for the Title
-    expect(getByText('Prep')).toBeTruthy();
 
-    // Check for the Buttons
-    expect(getByText('Take Photo')).toBeTruthy();
-    expect(getByText('Upload from Gallery')).toBeTruthy();
+    expect(getByText('Welcome to Prep')).toBeTruthy();
+    expect(getByText("What's in your fridge today?")).toBeTruthy();
+    expect(getByText('Scan Ingredients')).toBeTruthy();
+    expect(getByText('Upload Photo')).toBeTruthy();
+    expect(getByText('Enter Ingredients')).toBeTruthy();
+    expect(getByText('Preferences')).toBeTruthy();
   });
 });

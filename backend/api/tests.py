@@ -18,6 +18,7 @@ from .models import (
     MealPlanDay,
     MealPlanMeal,
 )
+from .serializers import UserProfileSerializer
 from .serializers import RegisterSerializer, SavedRecipeSerializer
 
 class DetectIngredientsViewTests(APITestCase):
@@ -468,6 +469,31 @@ class UserProfileModelTest(TestCase):
 
     def test_str_contains_email(self):
         self.assertIn('profile@example.com', str(self.profile))
+
+
+class UserProfileSerializerTest(TestCase):
+
+    def setUp(self):
+        self.user = make_user(email='serializer@example.com')
+        self.profile = UserProfile.objects.create(user=self.user)
+
+    def test_duplicate_csv_values_are_normalized(self):
+        serializer = UserProfileSerializer(
+            self.profile,
+            data={
+                'allergies': 'Peanuts, peanuts, Shellfish, shellfish',
+                'dietary_restrictions': 'Vegan, vegan, Halal',
+                'cuisine_preferences': 'Italian, italian, Mexican',
+            },
+            partial=True,
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        profile = serializer.save()
+
+        self.assertEqual(profile.allergies, 'Peanuts, Shellfish')
+        self.assertEqual(profile.dietary_restrictions, 'Vegan, Halal')
+        self.assertEqual(profile.cuisine_preferences, 'Italian, Mexican')
 
 
 # SavedRecipe model tests
