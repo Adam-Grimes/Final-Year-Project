@@ -866,25 +866,24 @@ function MainApp() {
     onBack,
   }: { title?: string; showBack?: boolean; onBack?: () => void }) => (
     <View style={styles.appHeader}>
+      {/* Left: back button */}
       <View style={styles.appHeaderLeft}>
         {showBack && (
           <TouchableOpacity onPress={onBack || goBack} style={styles.headerIconBtn}>
-            <Text style={styles.headerBackText}>{'< Back'}</Text>
+            <Text style={styles.headerBackText}>{'‹ Back'}</Text>
           </TouchableOpacity>
         )}
-        {title ? <Text style={styles.appHeaderTitle}>{title}</Text> : null}
       </View>
+
+      {/* Centre: title — absolutely positioned so it's always screen-centred */}
+      <View style={styles.appHeaderCenter} pointerEvents="none">
+        {title ? <Text style={styles.appHeaderTitle} numberOfLines={1}>{title}</Text> : null}
+      </View>
+
+      {/* Right: home */}
       <View style={styles.appHeaderRight}>
         <TouchableOpacity onPress={goHome} style={styles.headerIconBtn}>
           <Text style={styles.headerIcon}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => authToken ? navigate('profile') : navigate('auth')}
-          style={[styles.headerIconBtn, styles.profileIconBtn]}
-        >
-          <Text style={styles.headerProfileIcon}>
-            {authEmail ? authEmail[0].toUpperCase() : 'P'}
-          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -1009,21 +1008,30 @@ function MainApp() {
             </TouchableOpacity>
           )}
 
-          {authToken && (preferences.cuisines.length > 0 || preferences.dietary.length > 0) && (
+          {authToken && (
             <View style={styles.homeActivePrefRow}>
-              <Text style={styles.homeActivePrefLabel}>Your preferences:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {preferences.cuisines.slice(0, 3).map(c => (
-                  <View key={c} style={styles.activePrefChip}>
-                    <Text style={styles.activePrefText}>{c}</Text>
-                  </View>
-                ))}
-                {preferences.dietary.filter(d => d !== 'No Restrictions').slice(0, 2).map(d => (
-                  <View key={d} style={[styles.activePrefChip, { backgroundColor: '#D1FAE5' }]}>
-                    <Text style={[styles.activePrefText, { color: '#065F46' }]}>{d}</Text>
-                  </View>
-                ))}
-              </ScrollView>
+              <View style={styles.homeActivePrefHeader}>
+                <Text style={styles.homeActivePrefLabel}>Your preferences:</Text>
+                <TouchableOpacity onPress={openPrefsModal} style={styles.homeActivePrefEditBtn}>
+                  <Text style={styles.homeActivePrefEditText}>Edit</Text>
+                </TouchableOpacity>
+              </View>
+              {(preferences.cuisines.length > 0 || preferences.dietary.length > 0) ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {preferences.cuisines.slice(0, 3).map(c => (
+                    <View key={c} style={styles.activePrefChip}>
+                      <Text style={styles.activePrefText}>{c}</Text>
+                    </View>
+                  ))}
+                  {preferences.dietary.filter(d => d !== 'No Restrictions').slice(0, 2).map(d => (
+                    <View key={d} style={[styles.activePrefChip, { backgroundColor: '#D1FAE5' }]}>
+                      <Text style={[styles.activePrefText, { color: '#065F46' }]}>{d}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <Text style={{ color: C.subtle, fontSize: 13 }}>No preferences set yet</Text>
+              )}
             </View>
           )}
         </ScrollView>
@@ -1730,9 +1738,10 @@ const styles = StyleSheet.create({
 
   // App Header
   appHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.border },
-  appHeaderLeft:  { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  appHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  appHeaderTitle: { fontSize: 17, fontWeight: '700', color: '#1E293B', marginLeft: 8 },
+  appHeaderLeft:  { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  appHeaderCenter:{ position: 'absolute', left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
+  appHeaderRight: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  appHeaderTitle: { fontSize: 17, fontWeight: '700', color: '#1E293B' },
   headerIconBtn:  { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.bg, borderRadius: 8 },
   headerBackText: { color: C.blue, fontWeight: '600', fontSize: 15 },
   headerIcon:     { fontSize: 13, fontWeight: '600', color: C.dark },
@@ -1756,8 +1765,11 @@ const styles = StyleSheet.create({
   homeSmallCardTitle: { color: 'white', fontWeight: '700', fontSize: 14, marginTop: 4, textAlign: 'center' },
   homeSignInBanner: { backgroundColor: '#EFF6FF', borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#BFDBFE' },
   homeSignInText:  { color: C.blue, fontWeight: '600', fontSize: 14 },
-  homeActivePrefRow: { marginTop: 12 },
-  homeActivePrefLabel: { color: C.muted, fontSize: 12, marginBottom: 6 },
+  homeActivePrefRow:        { marginTop: 12 },
+  homeActivePrefHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  homeActivePrefLabel:      { color: C.muted, fontSize: 12 },
+  homeActivePrefEditBtn:    { paddingHorizontal: 10, paddingVertical: 3, backgroundColor: C.primary, borderRadius: 12 },
+  homeActivePrefEditText:   { color: 'white', fontSize: 12, fontWeight: '600' },
   activePrefChip:  { backgroundColor: '#DBEAFE', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, marginRight: 6 },
   activePrefText:  { color: '#1D4ED8', fontSize: 12, fontWeight: '500' },
 
