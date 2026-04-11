@@ -152,21 +152,25 @@ class RecipeStep(models.Model):
 class MealPlan(models.Model):
     """
     Stores a multi-day meal plan for a user.
-    Many-to-one relationship with User.
+    Each day and each meal slot is stored as a separate relational row
+    so individual meals can be swapped or deleted.
     """
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='meal_plans'
     )
+    name = models.CharField(max_length=100, default='My Meal Plan')
     duration_days = models.IntegerField(
         help_text='Length of the meal plan in days.'
     )
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = 'meal plan'
         verbose_name_plural = 'meal plans'
+        ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.user.email} – {self.duration_days}-day plan"
+        return f"{self.user.email} – {self.name}"
 
 
 class MealPlanDay(models.Model):
@@ -178,25 +182,49 @@ class MealPlanDay(models.Model):
     class Meta:
         ordering = ['day_number']
         constraints = [
-            models.UniqueConstraint(fields=['meal_plan', 'day_number'], name='uniq_mealplan_day_number')
+            models.UniqueConstraint(
+                fields=['meal_plan', 'day_number'], name='uniq_mealplan_day_number'
+            )
         ]
 
     def __str__(self):
-        return f"{self.meal_plan} – day {self.day_number}"
+        return f"Day {self.day_number}"
 
 
 class MealPlanMeal(models.Model):
+    """One breakfast/lunch/dinner slot within a MealPlanDay."""
+
+    MEAL_CHOICES = [
+        ('breakfast', 'Breakfast'),
+        ('lunch', 'Lunch'),
+        ('dinner', 'Dinner'),
+    ]
+
     day = models.ForeignKey(
         MealPlanDay, on_delete=models.CASCADE, related_name='meals'
     )
-    meal_type = models.CharField(max_length=32)
-    recipe = models.ForeignKey(
-        SavedRecipe, on_delete=models.SET_NULL, null=True, blank=True
+    meal_type = models.CharField(max_length=16, choices=MEAL_CHOICES)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    calories = models.IntegerField(null=True, blank=True)
+    servings = models.IntegerField(null=True, blank=True)
+    prep_time = models.CharField(max_length=50, blank=True, default='')
+    cook_time = models.CharField(max_length=50, blank=True, default='')
+    ingredients = models.JSONField(default=list)
+    steps = models.JSONField(default=list)
+    # Set when a user swaps this slot to one of their saved recipes
+    saved_recipe = models.ForeignKey(
+        SavedRecipe, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='meal_plan_slots'
     )
-    recipe_title = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         ordering = ['day__day_number', 'meal_type']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['day', 'meal_type'], name='uniq_day_meal_type'
+            )
+        ]
 
     def __str__(self):
-        return f"Day {self.day.day_number} {self.meal_type}: {self.recipe_title or (self.recipe.title if self.recipe else '')}"
+        return f"Day {self.day.day_number} – {self.meal_type}: {self.title}"

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import SavedRecipe, RecipeIngredient, RecipeStep, UserProfile
+from .models import SavedRecipe, RecipeIngredient, RecipeStep, UserProfile, MealPlan, MealPlanDay, MealPlanMeal
 
 User = get_user_model()
 
@@ -135,3 +135,30 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True, write_only=True)
     new_password = serializers.CharField(required=True, write_only=True, min_length=6)
+
+
+class MealPlanMealSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MealPlanMeal
+        fields = (
+            'id', 'meal_type', 'title', 'description',
+            'calories', 'servings', 'prep_time', 'cook_time',
+            'ingredients', 'steps', 'saved_recipe',
+        )
+
+
+class MealPlanDaySerializer(serializers.ModelSerializer):
+    meals = MealPlanMealSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MealPlanDay
+        fields = ('id', 'day_number', 'meals')
+
+
+class MealPlanSerializer(serializers.ModelSerializer):
+    days = MealPlanDaySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MealPlan
+        fields = ('id', 'name', 'duration_days', 'created_at', 'days')
+        read_only_fields = ('id', 'created_at')

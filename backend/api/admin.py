@@ -66,5 +66,5 @@ class MealPlanDayAdmin(admin.ModelAdmin):
 
 @admin.register(MealPlanMeal)
 class MealPlanMealAdmin(admin.ModelAdmin):
-    list_display = ['day', 'meal_type', 'recipe', 'recipe_title']
-    search_fields = ['day__meal_plan__user__email', 'recipe_title', 'recipe__title']
+    list_display = ['day', 'meal_type', 'title', 'calories', 'saved_recipe']
+    search_fields = ['day__meal_plan__user__email', 'title']
