@@ -55,10 +55,50 @@ yolo_model.set_classes([
 print("AI Models Loaded.")
 
 class DetectIngredientsView(APIView):
+    """
+    Detect food ingredients from an uploaded image.
+
+    Uses YOLOWorld object detection to identify likely food regions, then
+    passes cropped regions (or the full image as a fallback) to Google Gemini
+    for ingredient identification.
+
+    **Endpoint:** ``POST /api/detect-ingredients/``
+
+    **Authentication:** Not required.
+
+    **Request:** Multipart form-data with a single ``image`` field.
+
+    **Response:**
+
+    .. code-block:: json
+
+        { "detected_ingredients": ["tomato", "onion", "carrot"] }
+    """
     parser_classes = (MultiPartParser, FormParser)
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
+        """
+        Accept a multipart image upload and return a list of detected ingredients.
+
+        The detection pipeline runs in two stages:
+
+        1. **YOLO stage** – YOLOWorld scans the image for food containers/produce.
+           Each detected bounding-box is cropped and forwarded to Gemini.
+        2. **Gemini stage** – Google Gemini LLM analyses the image crops (or the
+           full image when YOLO finds nothing) and returns a structured
+           ``ingredients`` list.
+
+        Args:
+            request: DRF ``Request``. Must contain an ``image`` file in the
+                multipart form data.
+
+        Returns:
+            200 OK: ``{"detected_ingredients": [str, ...]}``
+            400 Bad Request: When no image is attached to the request.
+            500 Internal Server Error: When Gemini is not configured or returns
+                malformed JSON.
+        """
         if 'image' not in request.FILES:
             return Response({"error": "No image provided"}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -142,10 +182,72 @@ class DetectIngredientsView(APIView):
 
 
 class GenerateRecipeView(APIView):
+    """
+    Generate AI-crafted recipes from a list of available ingredients.
+
+    Constructs a tailored prompt for Google Gemini incorporating the user's
+    ingredients and personal preferences (cuisine, dietary restrictions,
+    allergens, calorie goal, and cooking skill). If the user is authenticated,
+    preferences stored in their :class:`~api.models.UserProfile` are merged
+    automatically.
+
+    **Endpoint:** ``POST /api/generate-recipe/``
+
+    **Authentication:** Optional (enriches prompt with saved preferences when
+    signed in).
+
+    **Request body:**
+
+    .. code-block:: json
+
+        {
+            "ingredients": ["chicken", "broccoli"],
+            "count": 3,
+            "preferences": {
+                "cuisines": ["Italian"],
+                "dietary": ["Gluten-Free"],
+                "allergies": ["peanuts"],
+                "calorieGoal": 2000,
+                "cookingSkill": "Intermediate"
+            }
+        }
+
+    **Response:**
+
+    .. code-block:: json
+
+        {
+            "recipes": [
+                {
+                    "title": "...",
+                    "description": "...",
+                    "calories": 450,
+                    "servings": 4,
+                    "prep_time": "10 mins",
+                    "cook_time": "25 mins",
+                    "ingredients": ["..."],
+                    "steps": ["..."]
+                }
+            ]
+        }
+    """
     parser_classes = (JSONParser,)
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
+        """
+        Generate between 1 and 5 distinct recipes based on provided ingredients.
+
+        Args:
+            request: DRF ``Request`` with a JSON body containing ``ingredients``
+                (list of str), optional ``count`` (int, default 3), and optional
+                ``preferences`` (dict).
+
+        Returns:
+            200 OK: ``{"recipes": [{...}, ...]}``
+            500 Internal Server Error: Gemini unavailable or JSON parse failure.
+            502 Bad Gateway: Gemini returned an empty recipes list.
+        """
         ingredients = request.data.get('ingredients', [])
         ingredients_str = ", ".join(ingredients) if ingredients else "nothing"
         count = min(max(int(request.data.get('count', 3)), 1), 5)
@@ -289,9 +391,29 @@ Rules:
 # --- AUTH VIEWS ---
 
 class RegisterView(APIView):
+    """
+    Register a new user account.
+
+    Creates the user record and immediately returns a JWT token pair so
+    the client can authenticate without a separate login step.
+
+    **Endpoint:** ``POST /api/auth/register/``
+
+    **Authentication:** Not required.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
+        """
+        Create a new user and return JWT tokens.
+
+        Args:
+            request: DRF ``Request`` with ``email`` and ``password`` in the body.
+
+        Returns:
+            201 Created: ``{"access": str, "refresh": str, "email": str}``
+            400 Bad Request: Validation errors (duplicate email, weak password).
+        """
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
@@ -305,9 +427,26 @@ class RegisterView(APIView):
 
 
 class LoginView(APIView):
+    """
+    Authenticate an existing user and return a JWT token pair.
+
+    **Endpoint:** ``POST /api/auth/login/``
+
+    **Authentication:** Not required.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
+        """
+        Validate credentials and issue JWT tokens.
+
+        Args:
+            request: DRF ``Request`` with ``email`` and ``password`` in the body.
+
+        Returns:
+            200 OK: ``{"access": str, "refresh": str, "email": str}``
+            401 Unauthorized: When credentials are invalid.
+        """
         email = request.data.get('email')
         password = request.data.get('password')
         user = authenticate(request, email=email, password=password)
@@ -322,13 +461,42 @@ class LoginView(APIView):
 
 
 class UserProfileView(APIView):
+    """
+    Retrieve or update the authenticated user's preference profile.
+
+    The profile drives AI prompt personalisation across recipe generation
+    and meal planning.
+
+    **Endpoint:** ``GET /api/profile/``  |  ``PUT /api/profile/``
+
+    **Authentication:** Required.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        """
+        Return the current user's profile.
+
+        Creates the profile with defaults if it does not yet exist.
+
+        Returns:
+            200 OK: Serialized :class:`~api.models.UserProfile`.
+        """
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
         return Response(UserProfileSerializer(profile).data)
 
     def put(self, request):
+        """
+        Partially update the current user's profile.
+
+        Args:
+            request: DRF ``Request``. Any subset of profile fields may be
+                provided (partial update).
+
+        Returns:
+            200 OK: Updated serialized profile.
+            400 Bad Request: Validation errors.
+        """
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
         serializer = UserProfileSerializer(profile, data=request.data, partial=True)
         if serializer.is_valid():
@@ -338,9 +506,27 @@ class UserProfileView(APIView):
 
 
 class ChangePasswordView(APIView):
+    """
+    Change the authenticated user's password.
+
+    **Endpoint:** ``POST /api/auth/change-password/``
+
+    **Authentication:** Required.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        """
+        Verify the old password and set a new one.
+
+        Args:
+            request: DRF ``Request`` with ``old_password`` and ``new_password``
+                in the body.
+
+        Returns:
+            200 OK: ``{"message": "Password changed successfully."}``
+            400 Bad Request: Wrong current password or validation failure.
+        """
         serializer = ChangePasswordSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -360,9 +546,30 @@ class ChangePasswordView(APIView):
 
 
 class ForgotPasswordView(APIView):
+    """
+    Request a password reset code for a given email address.
+
+    Always returns a success-like message to prevent email enumeration.
+    In development the generated token is echoed in the response under
+    ``dev_token``; in production this should be replaced with an email send.
+
+    **Endpoint:** ``POST /api/auth/forgot-password/``
+
+    **Authentication:** Not required.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
+        """
+        Generate a 6-digit reset token and associate it with the account.
+
+        Args:
+            request: DRF ``Request`` with ``email`` in the body.
+
+        Returns:
+            200 OK: ``{"message": "...", "dev_token": str}``
+            400 Bad Request: When no email is provided.
+        """
         email = request.data.get('email', '').strip().lower()
         if not email:
             return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -388,9 +595,29 @@ class ForgotPasswordView(APIView):
 
 
 class ResetPasswordView(APIView):
+    """
+    Reset a user's password using a time-limited 6-digit token.
+
+    Tokens expire after 1 hour and are single-use.
+
+    **Endpoint:** ``POST /api/auth/reset-password/``
+
+    **Authentication:** Not required.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
+        """
+        Validate the reset token and apply the new password.
+
+        Args:
+            request: DRF ``Request`` with ``email``, ``token``, and
+                ``new_password`` in the body.
+
+        Returns:
+            200 OK: ``{"message": "Password reset successfully."}``
+            400 Bad Request: Missing fields, expired token, or weak password.
+        """
         email = request.data.get('email', '').strip().lower()
         token = request.data.get('token', '').strip()
         new_password = request.data.get('new_password', '')
@@ -434,14 +661,38 @@ class ResetPasswordView(APIView):
 # --- SAVED RECIPE VIEWS ---
 
 class SavedRecipeListView(APIView):
+    """
+    List all saved recipes for the authenticated user, or save a new one.
+
+    **Endpoint:** ``GET /api/recipes/``  |  ``POST /api/recipes/``
+
+    **Authentication:** Required.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        """
+        Return all saved recipes belonging to the current user.
+
+        Returns:
+            200 OK: List of serialized :class:`~api.models.SavedRecipe` objects.
+        """
         recipes = SavedRecipe.objects.filter(user=request.user)
         serializer = SavedRecipeSerializer(recipes, many=True)
         return Response(serializer.data)
 
     def post(self, request):
+        """
+        Save a new recipe for the current user.
+
+        Args:
+            request: DRF ``Request`` with ``title``, ``ingredients`` (list),
+                and ``steps`` (list) in the body. ``calories`` is optional.
+
+        Returns:
+            201 Created: Serialized saved recipe.
+            400 Bad Request: Validation errors.
+        """
         serializer = SavedRecipeSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(user=request.user)
@@ -450,9 +701,30 @@ class SavedRecipeListView(APIView):
 
 
 class SavedRecipeDetailView(APIView):
+    """
+    Delete a single saved recipe owned by the authenticated user.
+
+    **Endpoint:** ``DELETE /api/recipes/<pk>/``
+
+    **Authentication:** Required.
+    """
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, pk):
+        """
+        Permanently remove a saved recipe.
+
+        Only the owning user can delete a recipe; other users' records are
+        returned as 404 to avoid leaking existence information.
+
+        Args:
+            request: Authenticated DRF ``Request``.
+            pk (int): Primary key of the :class:`~api.models.SavedRecipe`.
+
+        Returns:
+            204 No Content: Recipe deleted.
+            404 Not Found: Recipe does not exist or belongs to another user.
+        """
         try:
             recipe = SavedRecipe.objects.get(pk=pk, user=request.user)
             recipe.delete()
@@ -464,9 +736,50 @@ class SavedRecipeDetailView(APIView):
 # --- MEAL PLAN VIEWS ---
 
 class GenerateMealPlanView(APIView):
+    """
+    Generate a complete AI-crafted multi-day meal plan and persist it.
+
+    Builds a structured Gemini prompt from the user's profile preferences
+    and requested duration, then persists the result as relational
+    :class:`~api.models.MealPlan` / :class:`~api.models.MealPlanDay` /
+    :class:`~api.models.MealPlanMeal` rows so individual meals can later
+    be swapped or deleted.
+
+    **Endpoint:** ``POST /api/meal-plans/generate/``
+
+    **Authentication:** Required.
+
+    **Request body:**
+
+    .. code-block:: json
+
+        {
+            "duration_days": 5,
+            "name": "Healthy Week"
+        }
+
+    **Response:** Full serialized :class:`~api.models.MealPlan` with nested
+    days and meals.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        """
+        Generate ``duration_days`` days of breakfast / lunch / dinner.
+
+        Reads preferences from the user's :class:`~api.models.UserProfile`
+        (cuisine, dietary, allergies, calorie goal, cooking skill) and
+        incorporates any overrides supplied in the request body.
+
+        Args:
+            request: Authenticated DRF ``Request`` with optional
+                ``duration_days`` (1-7, default 3) and ``name`` (str).
+
+        Returns:
+            201 Created: Serialized meal plan with full nested structure.
+            500 Internal Server Error: Gemini unavailable or JSON failure.
+            502 Bad Gateway: Gemini returned empty plan data.
+        """
         duration_days = min(max(int(request.data.get('duration_days', 3)), 1), 7)
         name = request.data.get('name', '').strip() or f'{duration_days}-Day Meal Plan'
 
@@ -646,29 +959,81 @@ Rules:
 
 
 class MealPlanListView(APIView):
+    """
+    List all meal plans belonging to the authenticated user.
+
+    **Endpoint:** ``GET /api/meal-plans/``
+
+    **Authentication:** Required.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        """
+        Return all meal plans for the current user, with nested days and meals.
+
+        Returns:
+            200 OK: List of serialized :class:`~api.models.MealPlan` objects.
+        """
         plans = MealPlan.objects.filter(user=request.user).prefetch_related('days__meals')
         return Response(MealPlanSerializer(plans, many=True).data)
 
 
 class MealPlanDetailView(APIView):
+    """
+    Retrieve or delete a single meal plan.
+
+    **Endpoint:** ``GET /api/meal-plans/<pk>/``  |  ``DELETE /api/meal-plans/<pk>/``
+
+    **Authentication:** Required.
+    """
     permission_classes = [IsAuthenticated]
 
     def _get_plan(self, pk, user):
+        """
+        Fetch a MealPlan by pk, scoped to the given user.
+
+        Args:
+            pk (int): Primary key of the :class:`~api.models.MealPlan`.
+            user: The authenticated :class:`~api.models.User` instance.
+
+        Returns:
+            :class:`~api.models.MealPlan` or ``None`` if not found.
+        """
         try:
             return MealPlan.objects.prefetch_related('days__meals').get(pk=pk, user=user)
         except MealPlan.DoesNotExist:
             return None
 
     def get(self, request, pk):
+        """
+        Return a single meal plan with all nested days and meals.
+
+        Args:
+            request: Authenticated DRF ``Request``.
+            pk (int): Primary key of the meal plan.
+
+        Returns:
+            200 OK: Serialized :class:`~api.models.MealPlan`.
+            404 Not Found: Plan not found or owned by another user.
+        """
         plan = self._get_plan(pk, request.user)
         if plan is None:
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(MealPlanSerializer(plan).data)
 
     def delete(self, request, pk):
+        """
+        Permanently delete a meal plan and all its nested days and meals.
+
+        Args:
+            request: Authenticated DRF ``Request``.
+            pk (int): Primary key of the meal plan.
+
+        Returns:
+            204 No Content: Plan deleted.
+            404 Not Found: Plan not found or owned by another user.
+        """
         plan = self._get_plan(pk, request.user)
         if plan is None:
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -677,10 +1042,40 @@ class MealPlanDetailView(APIView):
 
 
 class MealPlanMealSwapView(APIView):
-    """PUT to swap a single meal slot — either with a saved recipe or new recipe data."""
+    """
+    Swap a single meal slot within a meal plan.
+
+    Replaces the content of one :class:`~api.models.MealPlanMeal` either
+    with a user's existing saved recipe or with arbitrary new recipe data.
+
+    **Endpoint:** ``PUT /api/meal-plans/meals/<pk>/swap/``
+
+    **Authentication:** Required.
+    """
     permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
+        """
+        Swap the meal slot identified by *pk*.
+
+        Exactly one of ``saved_recipe_id`` or ``recipe_data`` must be
+        provided in the request body.
+
+        Args:
+            request: Authenticated DRF ``Request`` with either:
+
+                - ``saved_recipe_id`` (int): pk of a :class:`~api.models.SavedRecipe`
+                  owned by the user, **or**
+                - ``recipe_data`` (dict): ad-hoc recipe fields (title, calories,
+                  ingredients, steps, etc.).
+
+            pk (int): Primary key of the :class:`~api.models.MealPlanMeal` to replace.
+
+        Returns:
+            200 OK: Serialized updated :class:`~api.models.MealPlanMeal`.
+            400 Bad Request: Neither ``saved_recipe_id`` nor ``recipe_data`` supplied.
+            404 Not Found: Meal slot or saved recipe not found / not owned by user.
+        """
         try:
             meal = MealPlanMeal.objects.select_related('day__meal_plan').get(pk=pk)
         except MealPlanMeal.DoesNotExist:
