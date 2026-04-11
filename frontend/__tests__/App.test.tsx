@@ -16,6 +16,6 @@ describe('<App />', () => {
     expect(getByText('Scan Ingredients')).toBeTruthy();
     expect(getByText('Upload Photo')).toBeTruthy();
     expect(getByText('Enter Ingredients')).toBeTruthy();
-    expect(getByText('Preferences')).toBeTruthy();
+    expect(getByText('Meal Planner')).toBeTruthy();
   });
 });

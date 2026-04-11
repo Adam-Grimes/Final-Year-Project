@@ -15,10 +15,11 @@ from django.contrib.auth import authenticate, get_user_model
 from django.utils import timezone
 from dotenv import load_dotenv
 from pathlib import Path
-from .models import SavedRecipe, UserProfile, PasswordResetToken
+from .models import SavedRecipe, UserProfile, PasswordResetToken, MealPlan, MealPlanDay, MealPlanMeal
 from .serializers import (
     RegisterSerializer, SavedRecipeSerializer,
     UserProfileSerializer, ChangePasswordSerializer,
+    MealPlanSerializer, MealPlanMealSerializer,
 )
 
 User = get_user_model()
@@ -458,3 +459,270 @@ class SavedRecipeDetailView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
         except SavedRecipe.DoesNotExist:
             return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# --- MEAL PLAN VIEWS ---
+
+class GenerateMealPlanView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        duration_days = min(max(int(request.data.get('duration_days', 3)), 1), 7)
+        name = request.data.get('name', '').strip() or f'{duration_days}-Day Meal Plan'
+
+        # Merge profile prefs with any overrides from the request
+        preferences = {}
+        try:
+            profile = request.user.profile
+            if profile.cuisine_preferences:
+                preferences['cuisines'] = [p.strip() for p in profile.cuisine_preferences.split(',') if p.strip()]
+            if profile.dietary_restrictions:
+                preferences['dietary'] = [p.strip() for p in profile.dietary_restrictions.split(',') if p.strip()]
+            if profile.allergies:
+                preferences['allergies'] = [p.strip() for p in profile.allergies.split(',') if p.strip()]
+            preferences['calorieGoal'] = profile.calorie_goal or 2000
+            preferences['cookingSkill'] = profile.cooking_skill or 'Intermediate'
+            preferences['customText'] = profile.custom_preferences or ''
+        except UserProfile.DoesNotExist:
+            preferences['calorieGoal'] = 2000
+
+        req_prefs = request.data.get('preferences', {})
+        if isinstance(req_prefs, dict):
+            preferences.update({k: v for k, v in req_prefs.items() if v})
+
+        calorie_goal = preferences.get('calorieGoal', 2000)
+        breakfast_cal = int(calorie_goal * 0.25)
+        lunch_cal     = int(calorie_goal * 0.35)
+        dinner_cal    = int(calorie_goal * 0.40)
+
+        pref_parts = []
+        cuisines = preferences.get('cuisines', [])
+        if cuisines:
+            pref_parts.append(
+                f"Cuisine style: {', '.join(cuisines)} "
+                "(Irish market – use ingredients from Tesco Ireland, Dunnes Stores, SuperValu)"
+            )
+        else:
+            pref_parts.append(
+                "Cuisine style: Irish home cooking "
+                "(use everyday Irish supermarket ingredients)"
+            )
+
+        dietary = [d for d in preferences.get('dietary', []) if d and d != 'No Restrictions']
+        if dietary:
+            pref_parts.append(f"Dietary requirements: {', '.join(dietary)}")
+
+        allergies = [a for a in preferences.get('allergies', []) if a and a != 'None']
+        if allergies:
+            pref_parts.append(
+                f"CRITICAL ALLERGEN WARNING – recipe MUST NOT contain: {', '.join(allergies)}. "
+                "Double-check every ingredient for hidden allergen sources."
+            )
+
+        pref_parts.append(
+            f"Daily calorie goal: {calorie_goal} kcal "
+            f"(aim for ~{breakfast_cal} kcal breakfast, ~{lunch_cal} kcal lunch, ~{dinner_cal} kcal dinner)"
+        )
+        pref_parts.append(f"Cooking skill: {preferences.get('cookingSkill', 'Intermediate')}")
+
+        custom = preferences.get('customText', '').strip()
+        if custom:
+            pref_parts.append(f"Additional preferences: {custom}")
+
+        pref_string = "\n".join(f"  - {p}" for p in pref_parts)
+
+        prompt = f"""You are an AI Chef for an Irish cooking app called Prep.
+Generate a {duration_days}-day meal plan with breakfast, lunch, and dinner for each day.
+
+User preferences:
+{pref_string}
+
+Rules:
+- All ingredients must be readily available in Irish supermarkets (Tesco, Dunnes Stores, SuperValu).
+- Breakfast should be quick (5-15 mins total).
+- Lunch can be lighter and moderate effort.
+- Dinner is the main meal of the day.
+- STRICTLY follow all dietary requirements and allergen warnings – this is a food safety requirement.
+- Vary meals across days – do not repeat the same meal more than once.
+- Include realistic prep_time and cook_time strings (e.g. "5 mins", "25 mins").
+- Each meal needs a short one-sentence description.
+- Estimate calories per serving as an integer.
+- Assume basic pantry staples (oil, butter, salt, pepper, garlic, eggs) are available.
+- Portions should suit an Irish household (serves 2-4)."""
+
+        meal_schema = {
+            "type": "object",
+            "properties": {
+                "title":       {"type": "string"},
+                "description": {"type": "string"},
+                "calories":    {"type": "integer"},
+                "servings":    {"type": "integer"},
+                "prep_time":   {"type": "string"},
+                "cook_time":   {"type": "string"},
+                "ingredients": {"type": "array", "items": {"type": "string"}},
+                "steps":       {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["title", "description", "calories", "ingredients", "steps"],
+        }
+
+        plan_schema = {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "day_number": {"type": "integer"},
+                            "breakfast":  meal_schema,
+                            "lunch":      meal_schema,
+                            "dinner":     meal_schema,
+                        },
+                        "required": ["day_number", "breakfast", "lunch", "dinner"],
+                    },
+                }
+            },
+            "required": ["days"],
+        }
+
+        try:
+            if gemini_model is None:
+                return Response(
+                    {"error": "Server misconfigured: missing GOOGLE_API_KEY"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=plan_schema,
+                ),
+            )
+
+            data = json.loads(response.text)
+            days_data = data.get('days', [])
+
+            if not days_data:
+                return Response(
+                    {"error": "Meal plan generation returned no data. Please try again."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            # Persist to DB
+            meal_plan = MealPlan.objects.create(
+                user=request.user,
+                name=name,
+                duration_days=duration_days,
+            )
+
+            for day_data in days_data:
+                day = MealPlanDay.objects.create(
+                    meal_plan=meal_plan,
+                    day_number=day_data['day_number'],
+                )
+                for meal_type in ('breakfast', 'lunch', 'dinner'):
+                    md = day_data.get(meal_type, {})
+                    if md:
+                        MealPlanMeal.objects.create(
+                            day=day,
+                            meal_type=meal_type,
+                            title=md.get('title', ''),
+                            description=md.get('description', ''),
+                            calories=md.get('calories'),
+                            servings=md.get('servings', 2),
+                            prep_time=md.get('prep_time', ''),
+                            cook_time=md.get('cook_time', ''),
+                            ingredients=md.get('ingredients', []),
+                            steps=md.get('steps', []),
+                        )
+
+            serializer = MealPlanSerializer(meal_plan)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            print(f"Meal Plan Error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MealPlanListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        plans = MealPlan.objects.filter(user=request.user).prefetch_related('days__meals')
+        return Response(MealPlanSerializer(plans, many=True).data)
+
+
+class MealPlanDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_plan(self, pk, user):
+        try:
+            return MealPlan.objects.prefetch_related('days__meals').get(pk=pk, user=user)
+        except MealPlan.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        plan = self._get_plan(pk, request.user)
+        if plan is None:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(MealPlanSerializer(plan).data)
+
+    def delete(self, request, pk):
+        plan = self._get_plan(pk, request.user)
+        if plan is None:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        plan.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MealPlanMealSwapView(APIView):
+    """PUT to swap a single meal slot — either with a saved recipe or new recipe data."""
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        try:
+            meal = MealPlanMeal.objects.select_related('day__meal_plan').get(pk=pk)
+        except MealPlanMeal.DoesNotExist:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if meal.day.meal_plan.user != request.user:
+            return Response({'error': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        saved_recipe_id = request.data.get('saved_recipe_id')
+        recipe_data     = request.data.get('recipe_data')
+
+        if saved_recipe_id:
+            try:
+                saved = SavedRecipe.objects.get(pk=saved_recipe_id, user=request.user)
+                meal.title       = saved.title
+                meal.description = ''
+                meal.calories    = saved.calories
+                meal.ingredients = [i.text for i in saved.ingredient_items.all().order_by('order')]
+                meal.steps       = [s.text for s in saved.step_items.all().order_by('order')]
+                meal.prep_time   = ''
+                meal.cook_time   = ''
+                meal.saved_recipe = saved
+                meal.save()
+            except SavedRecipe.DoesNotExist:
+                return Response({'error': 'Saved recipe not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        elif recipe_data and isinstance(recipe_data, dict):
+            meal.title       = recipe_data.get('title', meal.title)
+            meal.description = recipe_data.get('description', meal.description)
+            meal.calories    = recipe_data.get('calories', meal.calories)
+            meal.servings    = recipe_data.get('servings', meal.servings)
+            meal.prep_time   = recipe_data.get('prep_time', meal.prep_time)
+            meal.cook_time   = recipe_data.get('cook_time', meal.cook_time)
+            meal.ingredients = recipe_data.get('ingredients', meal.ingredients)
+            meal.steps       = recipe_data.get('steps', meal.steps)
+            meal.saved_recipe = None
+            meal.save()
+
+        else:
+            return Response(
+                {'error': 'Provide either saved_recipe_id or recipe_data.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(MealPlanMealSerializer(meal).data)

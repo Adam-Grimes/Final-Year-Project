@@ -40,7 +40,8 @@ type Screen =
   | 'home' | 'camera' | 'preview' | 'ingredients'
   | 'recipeSelect' | 'recipeDetail'
   | 'savedList' | 'savedDetail'
-  | 'auth' | 'profile' | 'changePassword';
+  | 'auth' | 'profile' | 'changePassword'
+  | 'mealPlanCreate' | 'mealPlanView' | 'mealPlanList' | 'mealMealDetail';
 
 type AuthSubMode = 'login' | 'register' | 'forgotStep1' | 'forgotStep2';
 
@@ -58,6 +59,34 @@ interface Recipe {
 interface SavedRecipe extends Recipe {
   savedAt: string;
   backendId?: number;
+}
+
+interface MealPlanMeal {
+  id: number;
+  meal_type: 'breakfast' | 'lunch' | 'dinner';
+  title: string;
+  description: string;
+  calories: number | null;
+  servings: number | null;
+  prep_time: string;
+  cook_time: string;
+  ingredients: string[];
+  steps: string[];
+  saved_recipe: number | null;
+}
+
+interface MealPlanDay {
+  id: number;
+  day_number: number;
+  meals: MealPlanMeal[];
+}
+
+interface MealPlan {
+  id: number;
+  name: string;
+  duration_days: number;
+  created_at: string;
+  days: MealPlanDay[];
 }
 
 interface Preferences {
@@ -389,6 +418,16 @@ function MainApp() {
   const [forgotError, setForgotError] = useState('');
   const [devToken, setDevToken] = useState('');
 
+  // Meal plans
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
+  const [viewingPlan, setViewingPlan] = useState<MealPlan | null>(null);
+  const [viewingMeal, setViewingMeal] = useState<MealPlanMeal | null>(null);
+  const [mealPlanDays, setMealPlanDays] = useState(3);
+  const [mealPlanName, setMealPlanName] = useState('');
+  const [mealPlanLoading, setMealPlanLoading] = useState(false);
+  const [swapModalVisible, setSwapModalVisible] = useState(false);
+  const [swapTargetMealId, setSwapTargetMealId] = useState<number | null>(null);
+
   // Profile
   const [profileLoading, setProfileLoading] = useState(false);
 
@@ -470,6 +509,7 @@ function MainApp() {
         setAuthEmail(email);
         syncFromBackend(token);
         loadProfile(token);
+        loadMealPlans(token);
       }
     } catch {}
   };
@@ -552,6 +592,7 @@ function MainApp() {
         setAuthError('');
         syncFromBackend(data.access);
         loadProfile(data.access);
+        loadMealPlans();
         setScreen('home');
         setScreenHistory([]);
       } else {
@@ -754,6 +795,103 @@ function MainApp() {
   };
 
   const isRecipeSaved = (title: string) => savedRecipes.some(r => r.title === title);
+
+  // --- Meal Plan API ---
+  const generateMealPlan = async () => {
+    if (!authToken) { Alert.alert('Sign In Required', 'Please sign in to generate meal plans.'); return; }
+    setMealPlanLoading(true);
+    setLoadingText('Building your meal plan...');
+    setLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/meal-plans/generate/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          duration_days: mealPlanDays,
+          name: mealPlanName.trim() || `${mealPlanDays}-Day Meal Plan`,
+          preferences,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setViewingPlan(data);
+        setMealPlans(prev => [data, ...prev]);
+        navigate('mealPlanView');
+      } else {
+        Alert.alert('Error', data.error || 'Failed to generate meal plan.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not connect to server.');
+    } finally {
+      setLoading(false);
+      setMealPlanLoading(false);
+    }
+  };
+
+  const loadMealPlans = async (tokenOverride?: string) => {
+    const token = tokenOverride ?? authToken;
+    if (!token) return;
+    try {
+      const res = await fetch(`${BASE_URL}/meal-plans/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setMealPlans(await res.json());
+    } catch {}
+  };
+
+  const deleteMealPlan = async (id: number) => {
+    if (!authToken) return;
+    try {
+      await fetch(`${BASE_URL}/meal-plans/${id}/`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      setMealPlans(prev => prev.filter(p => p.id !== id));
+      if (viewingPlan?.id === id) { setViewingPlan(null); goBack(); }
+    } catch {
+      Alert.alert('Error', 'Could not delete meal plan.');
+    }
+  };
+
+  const swapMealWithSaved = async (mealId: number, savedRecipeId: number) => {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${BASE_URL}/meal-plan-meals/${mealId}/`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ saved_recipe_id: savedRecipeId }),
+      });
+      if (res.ok) {
+        // Refresh the viewing plan
+        const planRes = await fetch(`${BASE_URL}/meal-plans/${viewingPlan!.id}/`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (planRes.ok) {
+          const updated = await planRes.json();
+          setViewingPlan(updated);
+          setMealPlans(prev => prev.map(p => p.id === updated.id ? updated : p));
+        }
+        setSwapModalVisible(false);
+        Alert.alert('Swapped!', 'Meal updated with your saved recipe.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not swap meal.');
+    }
+  };
+
+  const saveMealAsRecipe = async (meal: MealPlanMeal) => {
+    const recipe: Recipe = {
+      title: meal.title,
+      description: meal.description,
+      ingredients: meal.ingredients,
+      steps: meal.steps,
+      calories: meal.calories ?? undefined,
+      servings: meal.servings ?? undefined,
+      prep_time: meal.prep_time,
+      cook_time: meal.cook_time,
+    };
+    await saveRecipe(recipe);
+  };
 
   // --- Camera / Photo ---
   const startCamera = async () => {
@@ -988,14 +1126,19 @@ function MainApp() {
               onPress={() => navigate('savedList')}
             >
               <Text style={styles.homeSmallCardTitle}>
-                Saved{savedRecipes.length > 0 ? ` (${savedRecipes.length})` : ''}
+                Saved Recipes{savedRecipes.length > 0 ? ` (${savedRecipes.length})` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.homeSmallCard, { backgroundColor: '#F59E0B' }]}
-              onPress={openPrefsModal}
+              style={[styles.homeSmallCard, { backgroundColor: '#0F766E' }]}
+              onPress={() => {
+                if (!authToken) { Alert.alert('Sign In Required', 'Please sign in to use Meal Planner.'); return; }
+                setMealPlanName('');
+                setMealPlanDays(3);
+                navigate('mealPlanCreate');
+              }}
             >
-              <Text style={styles.homeSmallCardTitle}>Preferences</Text>
+              <Text style={styles.homeSmallCardTitle}>Meal Planner</Text>
             </TouchableOpacity>
           </View>
 
@@ -1009,29 +1152,31 @@ function MainApp() {
           )}
 
           {authToken && (
-            <View style={styles.homeActivePrefRow}>
-              <View style={styles.homeActivePrefHeader}>
-                <Text style={styles.homeActivePrefLabel}>Your preferences:</Text>
-                <TouchableOpacity onPress={openPrefsModal} style={styles.homeActivePrefEditBtn}>
-                  <Text style={styles.homeActivePrefEditText}>Edit</Text>
-                </TouchableOpacity>
-              </View>
-              {(preferences.cuisines.length > 0 || preferences.dietary.length > 0) ? (
+            <View style={[styles.prefsSummaryRow, { marginTop: 4, marginBottom: 0 }]}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.prefsSummaryLabel}>YOUR PREFERENCES</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {preferences.cuisines.slice(0, 3).map(c => (
-                    <View key={c} style={styles.activePrefChip}>
-                      <Text style={styles.activePrefText}>{c}</Text>
+                  {[
+                    ...preferences.cuisines.slice(0, 2),
+                    ...preferences.dietary.filter(d => d !== 'No Restrictions').slice(0, 1),
+                  ].map(p => (
+                    <View key={p} style={styles.prefsMiniChip}>
+                      <Text style={styles.prefsMiniText}>{p}</Text>
                     </View>
                   ))}
-                  {preferences.dietary.filter(d => d !== 'No Restrictions').slice(0, 2).map(d => (
-                    <View key={d} style={[styles.activePrefChip, { backgroundColor: '#D1FAE5' }]}>
-                      <Text style={[styles.activePrefText, { color: '#065F46' }]}>{d}</Text>
+                  {preferences.allergies.filter(a => a !== 'None').map(a => (
+                    <View key={a} style={[styles.prefsMiniChip, { backgroundColor: '#FEE2E2' }]}>
+                      <Text style={[styles.prefsMiniText, { color: '#991B1B' }]}>No {a}</Text>
                     </View>
                   ))}
+                  {preferences.cuisines.length === 0 && preferences.dietary.length === 0 && preferences.allergies.filter(a => a !== 'None').length === 0 && (
+                    <Text style={{ color: '#94A3B8', fontSize: 13 }}>No preferences set yet</Text>
+                  )}
                 </ScrollView>
-              ) : (
-                <Text style={{ color: C.subtle, fontSize: 13 }}>No preferences set yet</Text>
-              )}
+              </View>
+              <TouchableOpacity onPress={openPrefsModal} style={styles.prefsEditBtn}>
+                <Text style={styles.prefsEditText}>Adjust</Text>
+              </TouchableOpacity>
             </View>
           )}
         </ScrollView>
@@ -1380,7 +1525,7 @@ function MainApp() {
     // =========================================================================
     case 'savedList': return (
       <SafeAreaView style={styles.container}>
-        <AppHeader title="Saved Recipes" showBack={false} />
+        <AppHeader title="Saved Recipes" />
         <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 }]}>
           {savedRecipes.length === 0 ? (
             <View style={{ alignItems: 'center', marginTop: 60 }}>
@@ -1698,6 +1843,325 @@ function MainApp() {
       </SafeAreaView>
     );
 
+    // =========================================================================
+    // MEAL PLAN — CREATE
+    // =========================================================================
+    case 'mealPlanCreate': return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader title="New Meal Plan" />
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <Text style={styles.sectionTitle}>Plan Details</Text>
+
+          <Text style={styles.inputLabel}>Plan Name (optional)</Text>
+          <TextInput
+            style={[styles.authInput, { marginBottom: 20 }]}
+            placeholder="e.g. Healthy Week"
+            value={mealPlanName}
+            onChangeText={setMealPlanName}
+          />
+
+          <Text style={styles.inputLabel}>Number of Days</Text>
+          <View style={[styles.chipRow, { marginBottom: 20 }]}>
+            {[1, 2, 3, 4, 5, 6, 7].map(d => (
+              <ToggleChip
+                key={d}
+                label={`${d} day${d > 1 ? 's' : ''}`}
+                selected={mealPlanDays === d}
+                onPress={() => setMealPlanDays(d)}
+              />
+            ))}
+          </View>
+
+          {/* Active preferences summary */}
+          <View style={styles.prefsSummaryRow}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.prefsSummaryLabel}>COOKING FOR</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[
+                  ...preferences.cuisines.slice(0, 2),
+                  ...preferences.dietary.filter(d => d !== 'No Restrictions').slice(0, 1),
+                ].map(p => (
+                  <View key={p} style={styles.prefsMiniChip}>
+                    <Text style={styles.prefsMiniText}>{p}</Text>
+                  </View>
+                ))}
+                {preferences.allergies.filter(a => a !== 'None').map(a => (
+                  <View key={a} style={[styles.prefsMiniChip, { backgroundColor: '#FEE2E2' }]}>
+                    <Text style={[styles.prefsMiniText, { color: '#991B1B' }]}>No {a}</Text>
+                  </View>
+                ))}
+                {preferences.cuisines.length === 0 && preferences.dietary.length === 0 && (
+                  <Text style={{ color: '#94A3B8', fontSize: 13 }}>No preferences set</Text>
+                )}
+              </ScrollView>
+            </View>
+            <TouchableOpacity onPress={openPrefsModal} style={styles.prefsEditBtn}>
+              <Text style={styles.prefsEditText}>Adjust</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={{ color: C.muted, fontSize: 13, marginTop: 12, marginBottom: 24, lineHeight: 18 }}>
+            Gemini will create breakfast, lunch, and dinner for each day using your saved preferences.
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.btn, { backgroundColor: '#0D9488', marginTop: 0 }]}
+            onPress={generateMealPlan}
+          >
+            <Text style={styles.btnText}>Generate {mealPlanDays}-Day Plan</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.btn, { backgroundColor: '#475569', marginTop: 10 }]}
+            onPress={() => { setMealPlanName(''); navigate('mealPlanList'); }}
+          >
+            <Text style={styles.btnText}>View Saved Plans{mealPlans.length > 0 ? ` (${mealPlans.length})` : ''}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Preferences modal */}
+        <Modal visible={showPrefsModal} animationType="slide" presentationStyle="pageSheet">
+          <SafeAreaView style={styles.container}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderSpacer} />
+              <Text style={styles.modalTitle}>Adjust Preferences</Text>
+              <TouchableOpacity onPress={closePrefsModal}>
+                <Text style={styles.modalDone}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={{ color: '#64748B', fontSize: 13, marginBottom: 16 }}>
+                These preferences will shape your meal plan.
+              </Text>
+              <PreferencesSection
+                preferences={preferences}
+                customCuisineText={customCuisineText}
+                customDietaryText={customDietaryText}
+                customAllergyText={customAllergyText}
+                customCalorieText={customCalorieText}
+                setCustomCuisineText={setCustomCuisineText}
+                setCustomDietaryText={setCustomDietaryText}
+                setCustomAllergyText={setCustomAllergyText}
+                setCustomCalorieText={setCustomCalorieText}
+                updatePref={updatePref}
+                toggleList={toggleList}
+                addCustomPrefItem={addCustomPrefItem}
+              />
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      </SafeAreaView>
+    );
+
+    // =========================================================================
+    // MEAL PLAN — VIEW
+    // =========================================================================
+    case 'mealPlanView': return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader title={viewingPlan?.name ?? 'Meal Plan'} />
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 }]}>
+          {viewingPlan?.days.map(day => (
+            <View key={day.id} style={styles.mpDayCard}>
+              <Text style={styles.mpDayTitle}>Day {day.day_number}</Text>
+              {(['breakfast', 'lunch', 'dinner'] as const).map(mealType => {
+                const meal = day.meals.find(m => m.meal_type === mealType);
+                if (!meal) return null;
+                return (
+                  <TouchableOpacity
+                    key={meal.id}
+                    style={styles.mpMealRow}
+                    onPress={() => { setViewingMeal(meal); navigate('mealMealDetail'); }}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.mpMealLabelCol}>
+                      <Text style={styles.mpMealType}>{mealType.charAt(0).toUpperCase() + mealType.slice(1)}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.mpMealTitle} numberOfLines={1}>{meal.title}</Text>
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
+                        {meal.calories ? <Text style={styles.metaChip}>{meal.calories} kcal</Text> : null}
+                        {meal.prep_time ? <Text style={styles.metaChip}>{meal.prep_time} prep</Text> : null}
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.mpSwapBtn}
+                      onPress={() => {
+                        if (savedRecipes.length === 0) {
+                          Alert.alert('No saved recipes', 'Save some recipes first to swap them in.');
+                          return;
+                        }
+                        setSwapTargetMealId(meal.id);
+                        setSwapModalVisible(true);
+                      }}
+                    >
+                      <Text style={styles.mpSwapText}>Swap</Text>
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+
+          <TouchableOpacity
+            style={[styles.btn, { backgroundColor: C.red, marginTop: 16 }]}
+            onPress={() => Alert.alert(
+              'Delete Plan',
+              'Are you sure you want to delete this meal plan?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: () => deleteMealPlan(viewingPlan!.id) },
+              ]
+            )}
+          >
+            <Text style={styles.btnText}>Delete Plan</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Swap modal */}
+        <Modal visible={swapModalVisible} animationType="slide" presentationStyle="pageSheet">
+          <SafeAreaView style={styles.container}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setSwapModalVisible(false)}>
+                <Text style={styles.modalCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Swap with Saved Recipe</Text>
+              <View style={{ width: 60 }} />
+            </View>
+            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 }]}>
+              {savedRecipes.length === 0 ? (
+                <View style={{ alignItems: 'center', marginTop: 60 }}>
+                  <Text style={{ color: C.muted, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>No saved recipes yet.</Text>
+                  <Text style={{ color: C.subtle, fontSize: 14 }}>Generate and save a recipe first.</Text>
+                </View>
+              ) : (
+                savedRecipes.slice().reverse().map((r, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[styles.card, { marginBottom: 12 }]}
+                    onPress={() => {
+                      if (r.backendId && swapTargetMealId) {
+                        swapMealWithSaved(swapTargetMealId, r.backendId);
+                      } else {
+                        Alert.alert('Sync required', 'This recipe needs a backend ID. Please sign in and re-save it.');
+                      }
+                    }}
+                  >
+                    <Text style={styles.sectionTitle}>{r.title}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                      {r.calories ? <Text style={styles.metaChip}>{r.calories} kcal</Text> : null}
+                      <Text style={styles.metaChip}>{r.ingredients?.length ?? 0} ingredients</Text>
+                      <Text style={styles.metaChip}>
+                        {new Date(r.savedAt).toLocaleDateString('en-IE')}
+                      </Text>
+                    </View>
+                    {r.description ? (
+                      <Text style={{ fontSize: 13, color: C.muted, marginTop: 6 }} numberOfLines={2}>{r.description}</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      </SafeAreaView>
+    );
+
+    // =========================================================================
+    // MEAL PLAN — MEAL DETAIL
+    // =========================================================================
+    case 'mealMealDetail': {
+      const meal = viewingMeal;
+      if (!meal) return null;
+      return (
+        <SafeAreaView style={styles.container}>
+          <AppHeader />
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <View style={styles.card}>
+              <Text style={styles.title}>{meal.title}</Text>
+              {meal.description ? <Text style={styles.recipeDesc}>{meal.description}</Text> : null}
+
+              <View style={styles.recipeMetaRow}>
+                <Text style={styles.mpMealTypeBadge}>
+                  {meal.meal_type.charAt(0).toUpperCase() + meal.meal_type.slice(1)}
+                </Text>
+                {meal.calories ? <Text style={styles.metaChip}>{meal.calories} kcal</Text> : null}
+                {meal.servings ? <Text style={styles.metaChip}>Serves {meal.servings}</Text> : null}
+                {meal.prep_time ? <Text style={styles.metaChip}>{meal.prep_time} prep</Text> : null}
+                {meal.cook_time ? <Text style={styles.metaChip}>{meal.cook_time} cook</Text> : null}
+              </View>
+
+              <View style={styles.divider} />
+              <Text style={styles.sectionTitle}>Ingredients</Text>
+              {meal.ingredients.map((ing, i) => (
+                <Text key={i} style={styles.text}>{`- ${ing}`}</Text>
+              ))}
+
+              <View style={styles.divider} />
+
+              <Text style={styles.sectionTitle}>Steps</Text>
+              {meal.steps.map((step, i) => (
+                <View key={i} style={styles.stepRow}>
+                  <View style={styles.badge}>
+                    <Text style={{ color: 'white', fontWeight: '700', fontSize: 12 }}>{i + 1}</Text>
+                  </View>
+                  <Text style={[styles.text, { flex: 1 }]}>{step}</Text>
+                </View>
+              ))}
+            </View>
+
+            {isRecipeSaved(meal.title) ? (
+              <View style={[styles.btn, { backgroundColor: '#D1FAE5', marginTop: 20 }]}>
+                <Text style={{ color: '#065F46', fontWeight: '700', fontSize: 15 }}>Already in Saved Recipes</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: C.primary, marginTop: 20 }]}
+                onPress={() => saveMealAsRecipe(meal)}
+              >
+                <Text style={styles.btnText}>Save to My Recipes</Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      );
+    }
+
+    // =========================================================================
+    // MEAL PLAN — LIST
+    // =========================================================================
+    case 'mealPlanList': return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader title={`My Meal Plans${mealPlans.length > 0 ? ` (${mealPlans.length})` : ''}`} />
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 }]}>
+          {mealPlans.length === 0 ? (
+            <View style={{ alignItems: 'center', marginTop: 60 }}>
+              <Text style={{ color: C.muted, fontSize: 18, fontWeight: '700', marginBottom: 8 }}>No meal plans yet.</Text>
+              <Text style={{ color: C.subtle, fontSize: 14 }}>Generate one from the home screen.</Text>
+            </View>
+          ) : (
+            mealPlans.map(plan => (
+              <TouchableOpacity
+                key={plan.id}
+                style={[styles.card, { marginBottom: 12 }]}
+                onPress={() => { setViewingPlan(plan); navigate('mealPlanView'); }}
+              >
+                <Text style={styles.sectionTitle}>{plan.name}</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                  <Text style={styles.metaChip}>{plan.duration_days} days</Text>
+                  <Text style={styles.metaChip}>
+                    {new Date(plan.created_at).toLocaleDateString('en-IE')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    );
+
     default: return null;
   }
 }
@@ -1804,6 +2268,17 @@ const styles = StyleSheet.create({
   recipeCardArrow:   { fontSize: 14, color: C.primary, fontWeight: '700' },
   savedBadge:        { backgroundColor: '#D1FAE5', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   savedBadgeText:    { color: '#065F46', fontSize: 11, fontWeight: '600' },
+
+  // Meal Plan
+  mpDayCard:       { backgroundColor: C.card, borderRadius: 16, padding: 16, marginBottom: 14, elevation: 2 },
+  mpDayTitle:      { fontSize: 16, fontWeight: '800', color: C.dark, marginBottom: 10 },
+  mpMealRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.border, gap: 10 },
+  mpMealLabelCol:  { width: 72 },
+  mpMealType:      { fontSize: 11, fontWeight: '700', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  mpMealTitle:     { fontSize: 14, fontWeight: '600', color: C.dark },
+  mpMealTypeBadge: { fontSize: 12, fontWeight: '700', color: '#0F766E', backgroundColor: '#CCFBF1', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
+  mpSwapBtn:       { paddingHorizontal: 10, paddingVertical: 5, backgroundColor: '#F1F5F9', borderRadius: 8, borderWidth: 1, borderColor: C.border },
+  mpSwapText:      { fontSize: 12, fontWeight: '600', color: C.dark },
 
   // Inputs
   inputRow:   { flexDirection: 'row', marginBottom: 16 },
