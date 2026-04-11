@@ -581,13 +581,13 @@ class MealPlanModelTest(TestCase):
         self.day_1 = MealPlanDay.objects.create(meal_plan=self.meal_plan, day_number=1)
         self.day_2 = MealPlanDay.objects.create(meal_plan=self.meal_plan, day_number=2)
 
-        MealPlanMeal.objects.create(day=self.day_1, meal_type='breakfast', recipe_title='Porridge')
-        MealPlanMeal.objects.create(day=self.day_1, meal_type='lunch', recipe_title='Caesar Salad')
-        MealPlanMeal.objects.create(day=self.day_1, meal_type='dinner', recipe_title='Grilled Chicken & Rice')
+        MealPlanMeal.objects.create(day=self.day_1, meal_type='breakfast', title='Porridge')
+        MealPlanMeal.objects.create(day=self.day_1, meal_type='lunch', title='Caesar Salad')
+        MealPlanMeal.objects.create(day=self.day_1, meal_type='dinner', title='Grilled Chicken & Rice')
 
-        MealPlanMeal.objects.create(day=self.day_2, meal_type='breakfast', recipe_title='Scrambled Eggs')
-        MealPlanMeal.objects.create(day=self.day_2, meal_type='lunch', recipe_title='Tomato Soup')
-        MealPlanMeal.objects.create(day=self.day_2, meal_type='dinner', recipe_title='Beef Stir-fry')
+        MealPlanMeal.objects.create(day=self.day_2, meal_type='breakfast', title='Scrambled Eggs')
+        MealPlanMeal.objects.create(day=self.day_2, meal_type='lunch', title='Tomato Soup')
+        MealPlanMeal.objects.create(day=self.day_2, meal_type='dinner', title='Beef Stir-fry')
 
     def test_meal_plan_fields_stored_correctly(self):
         self.assertEqual(self.meal_plan.duration_days, 7)
@@ -619,10 +619,10 @@ class MealPlanModelTest(TestCase):
         self.user.delete()
         self.assertFalse(MealPlan.objects.filter(pk=plan_id).exists())
 
-    def test_str_contains_email_and_duration(self):
+    def test_str_contains_email_and_name(self):
         result = str(self.meal_plan)
         self.assertIn('mealplan@example.com', result)
-        self.assertIn('7', result)
+        self.assertIn('My Meal Plan', result)
 
 
 
