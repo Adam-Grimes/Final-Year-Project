@@ -10,8 +10,10 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate, get_user_model
+from django.conf import settings
 from django.utils import timezone
 from dotenv import load_dotenv
 from pathlib import Path
@@ -23,6 +25,20 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+# --- THROTTLE CLASSES ---
+
+class AuthRateThrottle(AnonRateThrottle):
+    """10 requests/minute for auth endpoints (login, register, password reset)."""
+    scope = 'auth'
+
+class AIAnonThrottle(AnonRateThrottle):
+    """20 requests/hour for unauthenticated AI calls."""
+    scope = 'ai_anon'
+
+class AIUserThrottle(UserRateThrottle):
+    """60 requests/hour for authenticated AI calls."""
+    scope = 'ai_user'
 
 # --- CONFIGURATION ---
 # Robust .env loading
@@ -49,14 +65,28 @@ if GOOGLE_API_KEY:
 else:
     print("Gemini model skipped due to missing API key.")
 yolo_model.set_classes([
-    "bottle", "jar", "food package", "vegetable", "fruit",
-    "meat package", "carton", "can", "tub", "container"
+    # Packaging / containers
+    "bottle", "jar", "can", "tin", "carton", "tub", "container",
+    "food package", "food bag", "plastic bag", "wrapper", "box",
+    "sauce bottle", "condiment bottle", "oil bottle", "milk carton",
+    # Fresh produce
+    "vegetable", "fruit", "herb", "salad", "leafy green",
+    "potato", "onion", "garlic", "tomato", "pepper", "carrot",
+    "broccoli", "mushroom", "cucumber", "courgette", "lemon", "lime",
+    # Meat & protein
+    "meat", "meat package", "chicken", "beef", "pork", "fish", "egg",
+    "deli meat", "sausage", "bacon",
+    # Dairy
+    "cheese", "butter", "yogurt", "cream",
+    # Dry / pantry
+    "bread", "pasta", "rice bag", "cereal box", "flour bag",
 ])
 print("AI Models Loaded.")
 
 class DetectIngredientsView(APIView):
     parser_classes = (MultiPartParser, FormParser)
     permission_classes = [AllowAny]
+    throttle_classes = [AIAnonThrottle, AIUserThrottle]
 
     def post(self, request, *args, **kwargs):
         if 'image' not in request.FILES:
@@ -65,42 +95,57 @@ class DetectIngredientsView(APIView):
             if gemini_model is None:
                 return Response({"error": "Server misconfigured: missing GOOGLE_API_KEY"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             image_file = request.FILES['image']
+            MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+            if image_file.size > MAX_IMAGE_SIZE:
+                return Response({"error": "Image too large. Maximum size is 10 MB."}, status=status.HTTP_400_BAD_REQUEST)
             original_img = Image.open(image_file).convert('RGB')
 
             # 1. Run YOLO
-            print("Running YOLO...")
+            img_w, img_h = original_img.size
+            print(f"[YOLO] Running inference on image {img_w}x{img_h}px...")
             results = yolo_model.predict(original_img, conf=0.05, verbose=False)
-            
+
             prompt_parts = []
             crops_found = False
+            crop_index = 0
 
             # 2. Check for Detections
             if results[0].boxes and len(results[0].boxes) > 0:
-                print(f"YOLO found {len(results[0].boxes)} items. preparing crops...")
-                
+                num_detections = len(results[0].boxes)
+                print(f"[YOLO] {num_detections} detection(s) found — preparing crops...")
+
                 # Base prompt for Hybrid Mode
                 prompt_parts.append(
                     "You are an AI Chef. Identify the food ingredients in these cropped images. "
                     "Ignore non-food items. Return a JSON object with a single list called 'ingredients'."
                 )
-                prompt_parts.append(original_img) # Context
+                prompt_parts.append(original_img)  # Context
 
-                for box in results[0].boxes:
+                for i, box in enumerate(results[0].boxes):
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                    width, height = original_img.size
-                    
+                    conf = float(box.conf[0])
+                    cls_id = int(box.cls[0])
+                    label = results[0].names.get(cls_id, f'class_{cls_id}') if hasattr(results[0], 'names') else f'class_{cls_id}'
+
                     # Safety check for crop boundaries
                     x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(width, x2), min(height, y2)
+                    x2, y2 = min(img_w, x2), min(img_h, y2)
 
                     if x2 > x1 and y2 > y1:
+                        crop_w, crop_h = x2 - x1, y2 - y1
+                        print(f"[YOLO]   Crop {i+1}/{num_detections}: label='{label}' conf={conf:.2f} box=({x1},{y1},{x2},{y2}) size={crop_w}x{crop_h}px")
                         cropped = original_img.crop((x1, y1, x2, y2))
                         prompt_parts.append(cropped)
                         crops_found = True
-            
+                        crop_index += 1
+                    else:
+                        print(f"[YOLO]   Crop {i+1}/{num_detections}: SKIPPED (invalid bounds after clamp)")
+
+                print(f"[YOLO] {crop_index} valid crop(s) sent to Gemini.")
+
             # 3. FALLBACK: If YOLO found nothing, force Full Image Scan
             if not crops_found:
-                print("YOLO found nothing. Switching to Full Image Scan...")
+                print("[YOLO] No valid detections — falling back to Full Image Scan.")
                 prompt_parts = [
                     "Analyze this photo of food ingredients. List every edible ingredient you can see. "
                     "Return a JSON object with a single list called 'ingredients'.",
@@ -120,7 +165,7 @@ class DetectIngredientsView(APIView):
             }
 
             # 5. Call Gemini
-            print("Calling Gemini...")
+            print(f"[Gemini] Sending {len(prompt_parts) - 1} image(s) for ingredient identification...")
             response = gemini_model.generate_content(
                 prompt_parts,
                 generation_config=genai.types.GenerationConfig(
@@ -130,9 +175,10 @@ class DetectIngredientsView(APIView):
             )
 
             # 6. Parse & Return
-            print(f"Gemini Response: {response.text}")
+            print(f"[Gemini] Raw response: {response.text}")
             data = json.loads(response.text)
             ingredients = data.get("ingredients", [])
+            print(f"[Gemini] Identified {len(ingredients)} ingredient(s): {', '.join(ingredients) if ingredients else 'none'}")
             
             return Response({"detected_ingredients": ingredients}, status=status.HTTP_200_OK)
 
@@ -144,11 +190,17 @@ class DetectIngredientsView(APIView):
 class GenerateRecipeView(APIView):
     parser_classes = (JSONParser,)
     permission_classes = [AllowAny]
+    throttle_classes = [AIAnonThrottle, AIUserThrottle]
 
     def post(self, request, *args, **kwargs):
         ingredients = request.data.get('ingredients', [])
-        ingredients_str = ", ".join(ingredients) if ingredients else "nothing"
-        count = min(max(int(request.data.get('count', 3)), 1), 5)
+        if not isinstance(ingredients, list):
+            return Response({'error': 'ingredients must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+        ingredients_str = ", ".join(str(i) for i in ingredients) if ingredients else "nothing"
+        try:
+            count = min(max(int(request.data.get('count', 3)), 1), 5)
+        except (ValueError, TypeError):
+            return Response({'error': 'count must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Start with preferences from the request body
         preferences = dict(request.data.get('preferences', {}))
@@ -207,6 +259,10 @@ class GenerateRecipeView(APIView):
 
         cooking_skill = preferences.get('cookingSkill', 'Intermediate')
         pref_parts.append(f"Cooking skill level: {cooking_skill}")
+
+        meal_type = preferences.get('mealType', '').strip().lower()
+        if meal_type in ('breakfast', 'lunch', 'dinner'):
+            pref_parts.append(f"Meal type: {meal_type} – ALL recipes must be suitable for {meal_type}")
 
         custom_text = preferences.get('customText', '').strip()
         if custom_text:
@@ -290,6 +346,7 @@ Rules:
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -306,6 +363,7 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         email = request.data.get('email')
@@ -361,6 +419,7 @@ class ChangePasswordView(APIView):
 
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         email = request.data.get('email', '').strip().lower()
@@ -379,16 +438,18 @@ class ForgotPasswordView(APIView):
         token = str(random.randint(100000, 999999))
         PasswordResetToken.objects.create(user=user, token=token)
 
-        # In production send this via email. For development we echo it back.
+        # In development echo the token back so it appears on-screen.
+        # In production (DEBUG=False) only print to console — replace with email send.
         print(f"[DEV] Password reset token for {email}: {token}")
-        return Response({
-            'message': 'If that email is registered, a reset code has been sent.',
-            'dev_token': token,  # Remove / replace with email send in production
-        })
+        response_data = {'message': 'If that email is registered, a reset code has been sent.'}
+        if settings.DEBUG:
+            response_data['dev_token'] = token
+        return Response(response_data)
 
 
 class ResetPasswordView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         email = request.data.get('email', '').strip().lower()
@@ -467,7 +528,10 @@ class GenerateMealPlanView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        duration_days = min(max(int(request.data.get('duration_days', 3)), 1), 7)
+        try:
+            duration_days = min(max(int(request.data.get('duration_days', 3)), 1), 7)
+        except (ValueError, TypeError):
+            return Response({'error': 'duration_days must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
         name = request.data.get('name', '').strip() or f'{duration_days}-Day Meal Plan'
 
         # Merge profile prefs with any overrides from the request

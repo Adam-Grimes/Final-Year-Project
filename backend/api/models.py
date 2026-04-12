@@ -99,11 +99,25 @@ class SavedRecipe(models.Model):
     Stores a user's saved/favourite recipes.
     Many-to-one relationship with User.
     """
+    CATEGORY_CHOICES = [
+        ('breakfast', 'Breakfast'),
+        ('lunch', 'Lunch'),
+        ('dinner', 'Dinner'),
+    ]
+
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='saved_recipes'
     )
     title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
     calories = models.IntegerField(null=True, blank=True, help_text='Estimated calorie count for the meal.')
+    servings = models.IntegerField(null=True, blank=True)
+    prep_time = models.CharField(max_length=50, blank=True, default='')
+    cook_time = models.CharField(max_length=50, blank=True, default='')
+    category = models.CharField(
+        max_length=10, blank=True, null=True, choices=CATEGORY_CHOICES,
+        help_text='Meal type category (breakfast, lunch, dinner).'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

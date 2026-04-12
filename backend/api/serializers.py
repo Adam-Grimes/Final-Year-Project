@@ -32,7 +32,11 @@ class SavedRecipeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SavedRecipe
-        fields = ('id', 'title', 'ingredients', 'steps', 'calories', 'created_at')
+        fields = (
+            'id', 'title', 'description', 'ingredients', 'steps',
+            'calories', 'servings', 'prep_time', 'cook_time', 'category',
+            'created_at',
+        )
         read_only_fields = ('id', 'created_at')
 
     def create(self, validated_data):

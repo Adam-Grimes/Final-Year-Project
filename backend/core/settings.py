@@ -10,22 +10,29 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / '.env')
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# --- SECURITY SETTINGS (all configurable via .env) ---
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$bpqc0jp^ybpak4_##lyy7h_w3f+r_pmbxx#nvi-pn(&gv-)7&'
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-$bpqc0jp^ybpak4_##lyy7h_w3f+r_pmbxx#nvi-pn(&gv-)7&'
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Set DEBUG=False in .env for production. Stays True in development.
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+# Comma-separated in .env, e.g. ALLOWED_HOSTS=myapp.railway.app,localhost
+_allowed = os.environ.get('ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()] if _allowed else (['*'] if DEBUG else ['localhost', '127.0.0.1'])
 
 
 # Application definition
@@ -59,7 +66,13 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'core.urls'
 
-CORS_ALLOW_ALL_ORIGINS = True
+# In development allow all CORS origins (React Native Expo dev server).
+# In production set CORS_ALLOWED_ORIGINS in .env, e.g.:
+#   CORS_ALLOWED_ORIGINS=https://myapp.railway.app
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+if not DEBUG:
+    _cors_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(',') if o.strip()]
 
 TEMPLATES = [
     {
@@ -139,10 +152,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ),
+    'DEFAULT_THROTTLE_CLASSES': [],
+    'DEFAULT_THROTTLE_RATES': {
+        'auth': '10/minute',      # login, register, forgot/reset password
+        'ai_anon': '20/hour',     # detect-ingredients, generate-recipe (unauthenticated)
+        'ai_user': '60/hour',     # detect-ingredients, generate-recipe (authenticated)
+    },
 }
 
-from datetime import timedelta
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
 }

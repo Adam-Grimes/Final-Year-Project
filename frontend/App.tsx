@@ -59,6 +59,7 @@ interface Recipe {
 interface SavedRecipe extends Recipe {
   savedAt: string;
   backendId?: number;
+  category?: 'breakfast' | 'lunch' | 'dinner';
 }
 
 interface MealPlanMeal {
@@ -399,6 +400,11 @@ function MainApp() {
 
   // Saved
   const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
+  const [savedSearch, setSavedSearch] = useState('');
+  const [savedCategoryFilter, setSavedCategoryFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all');
+
+  // Recipe generation meal type
+  const [recipeMealType, setRecipeMealType] = useState<'any' | 'breakfast' | 'lunch' | 'dinner'>('any');
 
   // Auth
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -427,6 +433,8 @@ function MainApp() {
   const [mealPlanLoading, setMealPlanLoading] = useState(false);
   const [swapModalVisible, setSwapModalVisible] = useState(false);
   const [swapTargetMealId, setSwapTargetMealId] = useState<number | null>(null);
+  const [swapSearch, setSwapSearch] = useState('');
+  const [swapCategoryFilter, setSwapCategoryFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all');
 
   // Profile
   const [profileLoading, setProfileLoading] = useState(false);
@@ -548,14 +556,33 @@ function MainApp() {
       });
       if (res.ok) {
         const data = await res.json();
-        const merged: SavedRecipe[] = data.map((r: any) => ({
-          title: r.title,
-          ingredients: r.ingredients,
-          steps: r.steps,
-          calories: r.calories,
-          savedAt: r.created_at,
-          backendId: r.id,
-        }));
+
+        // Read local cache directly from AsyncStorage (not state, which may not be
+        // populated yet when this runs in parallel with loadSavedRecipes on startup).
+        // This lets us preserve category/prep_time/cook_time that were stored locally
+        // for recipes saved before those fields existed in the backend DB.
+        let localCache: SavedRecipe[] = [];
+        try {
+          const stored = await AsyncStorage.getItem(STORAGE_KEY);
+          if (stored) localCache = JSON.parse(stored);
+        } catch {}
+
+        const merged: SavedRecipe[] = data.map((r: any) => {
+          const local = localCache.find((lr: SavedRecipe) => lr.backendId === r.id);
+          return {
+            title: r.title,
+            description: r.description || undefined,
+            ingredients: r.ingredients,
+            steps: r.steps,
+            calories: r.calories,
+            servings: r.servings || undefined,
+            prep_time: r.prep_time || local?.prep_time || undefined,
+            cook_time: r.cook_time || local?.cook_time || undefined,
+            category: (r.category || local?.category) as SavedRecipe['category'] | undefined,
+            savedAt: r.created_at,
+            backendId: r.id,
+          };
+        });
         setSavedRecipes(merged);
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
       }
@@ -592,7 +619,7 @@ function MainApp() {
         setAuthError('');
         syncFromBackend(data.access);
         loadProfile(data.access);
-        loadMealPlans();
+        loadMealPlans(data.access);
         setScreen('home');
         setScreenHistory([]);
       } else {
@@ -763,11 +790,22 @@ function MainApp() {
         const res = await fetch(`${BASE_URL}/recipes/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify({ title: r.title, ingredients: r.ingredients, steps: r.steps, calories: r.calories }),
+          body: JSON.stringify({
+            title: r.title,
+            description: r.description || '',
+            ingredients: r.ingredients,
+            steps: r.steps,
+            calories: r.calories,
+            servings: r.servings,
+            prep_time: r.prep_time || '',
+            cook_time: r.cook_time || '',
+            category: recipeMealType !== 'any' ? recipeMealType : null,
+          }),
         });
         if (res.ok) { const d = await res.json(); backendId = d.id; }
       }
-      const entry: SavedRecipe = { ...r, savedAt: new Date().toISOString(), backendId };
+      const category = recipeMealType !== 'any' ? recipeMealType : undefined;
+      const entry: SavedRecipe = { ...r, savedAt: new Date().toISOString(), backendId, category };
       const updated = [...savedRecipes, entry];
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       setSavedRecipes(updated);
@@ -964,7 +1002,14 @@ function MainApp() {
       const res = await fetch(`${BASE_URL}/generate-recipe/`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ ingredients: detectedIngredients, preferences, count: 3 }),
+        body: JSON.stringify({
+          ingredients: detectedIngredients,
+          preferences: {
+            ...preferences,
+            ...(recipeMealType !== 'any' ? { mealType: recipeMealType } : {}),
+          },
+          count: 3,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -1282,6 +1327,26 @@ function MainApp() {
               </TouchableOpacity>
             </View>
 
+            {/* Meal type selector */}
+            <Text style={styles.sectionTitle}>Meal Type</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              {(['any', 'breakfast', 'lunch', 'dinner'] as const).map(mt => (
+                <TouchableOpacity
+                  key={mt}
+                  onPress={() => setRecipeMealType(mt)}
+                  style={[
+                    styles.metaChip,
+                    { paddingVertical: 7, paddingHorizontal: 14 },
+                    recipeMealType === mt && { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
+                  ]}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: recipeMealType === mt ? '#fff' : '#64748B' }}>
+                    {mt.charAt(0).toUpperCase() + mt.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <Text style={styles.sectionTitle}>Detected Ingredients</Text>
             <Text style={{ color: '#64748B', fontSize: 13, marginBottom: 12 }}>
               Tap X to remove, or add more below:
@@ -1523,38 +1588,89 @@ function MainApp() {
     // =========================================================================
     // SAVED LIST
     // =========================================================================
-    case 'savedList': return (
-      <SafeAreaView style={styles.container}>
-        <AppHeader title="Saved Recipes" />
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 }]}>
-          {savedRecipes.length === 0 ? (
-            <View style={{ alignItems: 'center', marginTop: 60 }}>
-              <Text style={{ color: '#64748B', fontSize: 18, fontWeight: '700', marginBottom: 8 }}>No saved recipes yet.</Text>
-              <Text style={{ color: '#94A3B8', fontSize: 14 }}>
-                Generate a recipe and tap Save!
-              </Text>
+    case 'savedList': {
+      const filteredSaved = savedRecipes
+        .slice()
+        .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+        .filter(item => {
+          const matchesSearch = savedSearch.trim() === '' ||
+            item.title.toLowerCase().includes(savedSearch.trim().toLowerCase());
+          const matchesCategory = savedCategoryFilter === 'all' || item.category === savedCategoryFilter;
+          return matchesSearch && matchesCategory;
+        });
+      return (
+        <SafeAreaView style={styles.container}>
+          <AppHeader title="Saved Recipes" />
+          <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, marginBottom: 10 }}>
+              <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
+              <TextInput
+                style={{ flex: 1, paddingVertical: 12, fontSize: 15, color: '#0F172A' }}
+                placeholder="Search recipes..."
+                placeholderTextColor="#94A3B8"
+                value={savedSearch}
+                onChangeText={setSavedSearch}
+                clearButtonMode="while-editing"
+                returnKeyType="search"
+              />
             </View>
-          ) : (
-            savedRecipes.slice().reverse().map((item, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[styles.card, { marginBottom: 12 }]}
-                onPress={() => { setViewingRecipe(item); navigate('recipeDetail'); }}
-              >
-                <Text style={styles.sectionTitle}>{item.title}</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                  {item.calories ? <Text style={styles.metaChip}>{item.calories} kcal</Text> : null}
-                  <Text style={styles.metaChip}>{item.ingredients?.length ?? 0} ingredients</Text>
-                  <Text style={styles.metaChip}>
-                    {new Date(item.savedAt).toLocaleDateString('en-IE')}
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              {(['all', 'breakfast', 'lunch', 'dinner'] as const).map(cat => (
+                <TouchableOpacity
+                  key={cat}
+                  onPress={() => setSavedCategoryFilter(cat)}
+                  style={[
+                    styles.metaChip,
+                    { paddingVertical: 7, paddingHorizontal: 14 },
+                    savedCategoryFilter === cat && { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
+                  ]}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: savedCategoryFilter === cat ? '#fff' : '#64748B' }}>
+                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
                   </Text>
-                </View>
-              </TouchableOpacity>
-            ))
-          )}
-        </ScrollView>
-      </SafeAreaView>
-    );
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 4, paddingBottom: 80 }]}>
+            {savedRecipes.length === 0 ? (
+              <View style={{ alignItems: 'center', marginTop: 60 }}>
+                <Text style={{ color: '#64748B', fontSize: 18, fontWeight: '700', marginBottom: 8 }}>No saved recipes yet.</Text>
+                <Text style={{ color: '#94A3B8', fontSize: 14 }}>Generate a recipe and tap Save!</Text>
+              </View>
+            ) : filteredSaved.length === 0 ? (
+              <View style={{ alignItems: 'center', marginTop: 40 }}>
+                <Text style={{ color: '#64748B', fontSize: 15, fontWeight: '600' }}>No recipes match your search.</Text>
+              </View>
+            ) : (
+              filteredSaved.map((item, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={[styles.card, { marginBottom: 12 }]}
+                  onPress={() => { setViewingRecipe(item); navigate('recipeDetail'); }}
+                >
+                  <Text style={styles.sectionTitle}>{item.title}</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                    {item.category ? (
+                      <Text style={[styles.metaChip, { backgroundColor: '#CCFBF1', borderColor: '#99F6E4', color: '#0F766E', fontWeight: '700' }]}>
+                        {item.category.charAt(0).toUpperCase() + item.category.slice(1)}
+                      </Text>
+                    ) : null}
+                    {item.calories ? <Text style={styles.metaChip}>{item.calories} kcal</Text> : null}
+                    {item.prep_time ? <Text style={styles.metaChip}>Prep: {item.prep_time}</Text> : null}
+                    {item.cook_time ? <Text style={styles.metaChip}>Cook: {item.cook_time}</Text> : null}
+                    <Text style={styles.metaChip}>{item.ingredients?.length ?? 0} ingredients</Text>
+                    <Text style={styles.metaChip}>
+                      {new Date(item.savedAt).toLocaleDateString('en-IE')}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      );
+    }
 
     // =========================================================================
     // AUTH
@@ -1685,9 +1801,9 @@ function MainApp() {
                 </Text>
                 {devToken ? (
                   <View style={styles.devTokenBox}>
-                    <Text style={styles.devTokenLabel}>DEV MODE - Your code is:</Text>
+                    <Text style={styles.devTokenLabel}>DEV MODE — Your reset code:</Text>
                     <Text style={styles.devTokenValue}>{devToken}</Text>
-                    <Text style={styles.devTokenNote}>In production this would be sent by email.</Text>
+                    <Text style={styles.devTokenNote}>This box is hidden in production.</Text>
                   </View>
                 ) : null}
                 <TextInput
@@ -1994,6 +2110,8 @@ function MainApp() {
                           return;
                         }
                         setSwapTargetMealId(meal.id);
+                        setSwapSearch('');
+                        setSwapCategoryFilter('all');
                         setSwapModalVisible(true);
                       }}
                     >
@@ -2030,14 +2148,60 @@ function MainApp() {
               <Text style={styles.modalTitle}>Swap with Saved Recipe</Text>
               <View style={{ width: 60 }} />
             </View>
+            {/* Search + filter */}
+            <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 12, marginBottom: 8 }}>
+                <Text style={{ fontSize: 16, marginRight: 8 }}>🔍</Text>
+                <TextInput
+                  style={{ flex: 1, paddingVertical: 10, fontSize: 15, color: '#0F172A' }}
+                  placeholder="Search saved recipes..."
+                  placeholderTextColor="#94A3B8"
+                  value={swapSearch}
+                  onChangeText={setSwapSearch}
+                  clearButtonMode="while-editing"
+                />
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {(['all', 'breakfast', 'lunch', 'dinner'] as const).map(cat => (
+                  <TouchableOpacity
+                    key={cat}
+                    onPress={() => setSwapCategoryFilter(cat)}
+                    style={[
+                      styles.metaChip,
+                      { paddingVertical: 7, paddingHorizontal: 14 },
+                      swapCategoryFilter === cat && { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: swapCategoryFilter === cat ? '#fff' : '#64748B' }}>
+                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
             <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 }]}>
-              {savedRecipes.length === 0 ? (
-                <View style={{ alignItems: 'center', marginTop: 60 }}>
-                  <Text style={{ color: C.muted, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>No saved recipes yet.</Text>
-                  <Text style={{ color: C.subtle, fontSize: 14 }}>Generate and save a recipe first.</Text>
-                </View>
-              ) : (
-                savedRecipes.slice().reverse().map((r, i) => (
+              {(() => {
+                const swapFiltered = savedRecipes
+                  .slice()
+                  .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+                  .filter(r => {
+                    const matchesSearch = swapSearch.trim() === '' ||
+                      r.title.toLowerCase().includes(swapSearch.trim().toLowerCase());
+                    const matchesCategory = swapCategoryFilter === 'all' || r.category === swapCategoryFilter;
+                    return matchesSearch && matchesCategory;
+                  });
+                if (savedRecipes.length === 0) return (
+                  <View style={{ alignItems: 'center', marginTop: 60 }}>
+                    <Text style={{ color: C.muted, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>No saved recipes yet.</Text>
+                    <Text style={{ color: C.subtle, fontSize: 14 }}>Generate and save a recipe first.</Text>
+                  </View>
+                );
+                if (swapFiltered.length === 0) return (
+                  <View style={{ alignItems: 'center', marginTop: 40 }}>
+                    <Text style={{ color: C.muted, fontSize: 15, fontWeight: '600' }}>No recipes match your search.</Text>
+                  </View>
+                );
+                return swapFiltered.map((r, i) => (
                   <TouchableOpacity
                     key={i}
                     style={[styles.card, { marginBottom: 12 }]}
@@ -2051,18 +2215,21 @@ function MainApp() {
                   >
                     <Text style={styles.sectionTitle}>{r.title}</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                      {r.category ? (
+                        <Text style={[styles.metaChip, { backgroundColor: '#CCFBF1', borderColor: '#99F6E4', color: '#0F766E', fontWeight: '700' }]}>
+                          {r.category.charAt(0).toUpperCase() + r.category.slice(1)}
+                        </Text>
+                      ) : null}
                       {r.calories ? <Text style={styles.metaChip}>{r.calories} kcal</Text> : null}
                       <Text style={styles.metaChip}>{r.ingredients?.length ?? 0} ingredients</Text>
-                      <Text style={styles.metaChip}>
-                        {new Date(r.savedAt).toLocaleDateString('en-IE')}
-                      </Text>
+                      <Text style={styles.metaChip}>{new Date(r.savedAt).toLocaleDateString('en-IE')}</Text>
                     </View>
                     {r.description ? (
                       <Text style={{ fontSize: 13, color: C.muted, marginTop: 6 }} numberOfLines={2}>{r.description}</Text>
                     ) : null}
                   </TouchableOpacity>
-                ))
-              )}
+                ));
+              })()}
             </ScrollView>
           </SafeAreaView>
         </Modal>
@@ -2296,7 +2463,7 @@ const styles = StyleSheet.create({
   authSubHeading:   { fontSize: 14, color: C.muted, marginBottom: 20, lineHeight: 20 },
   forgotLink:       { color: C.blue, textAlign: 'center', fontSize: 14, fontWeight: '600', marginTop: 4 },
 
-  // Dev token box
+  // Dev token box (only shown when backend is in DEBUG mode)
   devTokenBox:   { backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#FCD34D' },
   devTokenLabel: { fontSize: 12, color: '#92400E', fontWeight: '600', marginBottom: 4 },
   devTokenValue: { fontSize: 28, fontWeight: '900', color: '#B45309', letterSpacing: 6, textAlign: 'center', marginVertical: 4 },
