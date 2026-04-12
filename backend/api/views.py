@@ -4,6 +4,7 @@ import random
 from datetime import timedelta
 from PIL import Image
 import google.generativeai as genai
+import google.api_core.exceptions
 from ultralytics import YOLOWorld
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -143,7 +144,7 @@ class DetectIngredientsView(APIView):
             # 1. Run YOLO
             img_w, img_h = original_img.size
             print(f"[YOLO] Running inference on image {img_w}x{img_h}px...")
-            results = yolo_model.predict(original_img, conf=0.05, verbose=False)
+            results = yolo_model.predict(original_img, conf=0.30, verbose=False)
 
             prompt_parts = []
             crops_found = False
@@ -154,6 +155,10 @@ class DetectIngredientsView(APIView):
                 num_detections = len(results[0].boxes)
                 print(f"[YOLO] {num_detections} detection(s) found — preparing crops...")
 
+                # Sort boxes by confidence descending and cap at 15 to avoid quota spikes
+                MAX_CROPS = 15
+                boxes_sorted = sorted(results[0].boxes, key=lambda b: float(b.conf[0]), reverse=True)[:MAX_CROPS]
+
                 # Base prompt for Hybrid Mode
                 prompt_parts.append(
                     "You are an AI Chef. Identify the food ingredients in these cropped images. "
@@ -161,7 +166,7 @@ class DetectIngredientsView(APIView):
                 )
                 prompt_parts.append(original_img)  # Context
 
-                for i, box in enumerate(results[0].boxes):
+                for i, box in enumerate(boxes_sorted):
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     conf = float(box.conf[0])
                     cls_id = int(box.cls[0])
@@ -173,13 +178,13 @@ class DetectIngredientsView(APIView):
 
                     if x2 > x1 and y2 > y1:
                         crop_w, crop_h = x2 - x1, y2 - y1
-                        print(f"[YOLO]   Crop {i+1}/{num_detections}: label='{label}' conf={conf:.2f} box=({x1},{y1},{x2},{y2}) size={crop_w}x{crop_h}px")
+                        print(f"[YOLO]   Crop {i+1}/{len(boxes_sorted)}: label='{label}' conf={conf:.2f} box=({x1},{y1},{x2},{y2}) size={crop_w}x{crop_h}px")
                         cropped = original_img.crop((x1, y1, x2, y2))
                         prompt_parts.append(cropped)
                         crops_found = True
                         crop_index += 1
                     else:
-                        print(f"[YOLO]   Crop {i+1}/{num_detections}: SKIPPED (invalid bounds after clamp)")
+                        print(f"[YOLO]   Crop {i+1}/{len(boxes_sorted)}: SKIPPED (invalid bounds after clamp)")
 
                 print(f"[YOLO] {crop_index} valid crop(s) sent to Gemini.")
 
@@ -222,12 +227,14 @@ class DetectIngredientsView(APIView):
             
             return Response({"detected_ingredients": ingredients}, status=status.HTTP_200_OK)
 
+        except google.api_core.exceptions.ResourceExhausted:
+            return Response(
+                {"error": "The AI service is temporarily over capacity. Please wait a moment and try again."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         except Exception as e:
             print(f"Detection Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class GenerateRecipeView(APIView):
     """
     Generate AI-crafted recipes from a list of available ingredients.
 
@@ -439,6 +446,11 @@ Rules:
 
             return Response(data, status=status.HTTP_200_OK)
 
+        except google.api_core.exceptions.ResourceExhausted:
+            return Response(
+                {"error": "The AI service is temporarily over capacity. Please wait a moment and try again."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         except Exception as e:
             print(f"Recipe Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
