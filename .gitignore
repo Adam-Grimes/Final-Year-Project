@@ -15,6 +15,10 @@ backend/node_modules/
 
 .env
 
+# Django
+backend/db.sqlite3
+backend/*.pt
+
 # Jest
 frontend/coverage/
 frontend/.jest/

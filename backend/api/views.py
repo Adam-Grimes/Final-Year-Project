@@ -56,8 +56,17 @@ if GOOGLE_API_KEY:
 else:
     print(f"WARNING: GOOGLE_API_KEY not found in {ENV_PATH}. Gemini API will be unavailable.")
 
-yolo_model = YOLOWorld("yolov8l-worldv2.pt")
+# Download YOLO model if not present (e.g. on Railway where the .pt is not in git)
+YOLO_MODEL_PATH = BASE_DIR / 'yolov8l-worldv2.pt'
+if not YOLO_MODEL_PATH.exists():
+    import urllib.request
+    YOLO_DOWNLOAD_URL = 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8l-worldv2.pt'
+    print(f"YOLO model not found — downloading from {YOLO_DOWNLOAD_URL} ...")
+    urllib.request.urlretrieve(YOLO_DOWNLOAD_URL, str(YOLO_MODEL_PATH))
+    print("YOLO model downloaded.")
+
 print("Loading AI Models...")
+yolo_model = YOLOWorld(str(YOLO_MODEL_PATH))
 GEMINI_MODEL_NAME = "models/gemini-2.5-flash"
 # Only instantiate the Gemini model if we have an API key
 gemini_model = None
@@ -235,6 +244,9 @@ class DetectIngredientsView(APIView):
         except Exception as e:
             print(f"Detection Error: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GenerateRecipeView(APIView):
     """
     Generate AI-crafted recipes from a list of available ingredients.
 
