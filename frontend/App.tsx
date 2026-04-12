@@ -1587,12 +1587,32 @@ function MainApp() {
             )}
 
             {r && !isSaved && (
-              <TouchableOpacity
-                style={[styles.btn, { marginTop: 20, backgroundColor: '#10B981' }]}
-                onPress={() => saveRecipe(r)}
-              >
-                <Text style={styles.btnText}>Save Recipe</Text>
-              </TouchableOpacity>
+              <>
+                <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Save As</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                  {(['breakfast', 'lunch', 'dinner'] as const).map(mt => (
+                    <TouchableOpacity
+                      key={mt}
+                      onPress={() => setRecipeMealType(mt)}
+                      style={[
+                        styles.metaChip,
+                        { paddingVertical: 7, paddingHorizontal: 14 },
+                        recipeMealType === mt && { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
+                      ]}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: recipeMealType === mt ? '#fff' : '#64748B' }}>
+                        {mt.charAt(0).toUpperCase() + mt.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TouchableOpacity
+                  style={[styles.btn, { backgroundColor: '#10B981' }]}
+                  onPress={() => saveRecipe(r)}
+                >
+                  <Text style={styles.btnText}>Save Recipe</Text>
+                </TouchableOpacity>
+              </>
             )}
             {r && isSaved && (
               <>
