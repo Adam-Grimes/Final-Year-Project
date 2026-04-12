@@ -835,9 +835,10 @@ function MainApp() {
   };
 
   // --- Recipes ---
-  const saveRecipe = async (r: Recipe) => {
+  const saveRecipe = async (r: Recipe, categoryOverride?: SavedRecipe['category']) => {
     try {
       let backendId: number | undefined;
+      const category = categoryOverride ?? (recipeMealType !== 'any' ? recipeMealType : undefined);
       if (authToken) {
         const res = await authFetch(`${BASE_URL}/recipes/`, {
           method: 'POST',
@@ -851,12 +852,11 @@ function MainApp() {
             servings: r.servings,
             prep_time: r.prep_time || '',
             cook_time: r.cook_time || '',
-            category: recipeMealType !== 'any' ? recipeMealType : null,
+            category: category ?? null,
           }),
         });
         if (res.ok) { const d = await res.json(); backendId = d.id; }
       }
-      const category = recipeMealType !== 'any' ? recipeMealType : undefined;
       const entry: SavedRecipe = { ...r, savedAt: new Date().toISOString(), backendId, category };
       const updated = [...savedRecipes, entry];
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -976,7 +976,7 @@ function MainApp() {
       prep_time: meal.prep_time,
       cook_time: meal.cook_time,
     };
-    await saveRecipe(recipe);
+    await saveRecipe(recipe, meal.meal_type as SavedRecipe['category']);
   };
 
   // --- Camera / Photo ---
@@ -1764,6 +1764,7 @@ function MainApp() {
                 <TextInput
                   style={styles.authInput}
                   placeholder="Email address"
+                  placeholderTextColor="#94A3B8"
                   value={authEmailInput}
                   onChangeText={setAuthEmailInput}
                   autoCapitalize="none"
@@ -1773,6 +1774,7 @@ function MainApp() {
                 <TextInput
                   style={styles.authInput}
                   placeholder="Password"
+                  placeholderTextColor="#94A3B8"
                   value={authPasswordInput}
                   onChangeText={setAuthPasswordInput}
                   secureTextEntry
@@ -2496,7 +2498,7 @@ const styles = StyleSheet.create({
   // Inputs
   inputRow:   { flexDirection: 'row', marginBottom: 16 },
   input:      { flex: 1, backgroundColor: C.card, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: C.border, marginRight: 10, fontSize: 15 },
-  authInput:  { backgroundColor: C.card, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: C.border, marginBottom: 12, fontSize: 16 },
+  authInput:  { backgroundColor: C.card, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: C.border, marginBottom: 12, fontSize: 16, color: C.dark },
   footer:     { padding: 20, borderTopWidth: 1, borderColor: C.border, backgroundColor: C.card },
 
   // Auth
