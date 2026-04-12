@@ -470,7 +470,7 @@ Rules:
 - Each recipe must be noticeably different (vary cooking method, flavour profile, or cuisine angle).
 - STRICTLY follow all dietary requirements and allergen warnings – this is a food safety requirement.
 - Adapt portions for a typical Irish household (serves 2–4).
-- Include realistic prep_time and cook_time strings (e.g. "10 mins", "25 mins").
+- Always provide BOTH prep_time and cook_time as non-empty strings (e.g. "10 mins", "25 mins"). If there is no distinct cooking step, set cook_time to "0 mins".
 - Provide a short one-sentence description for each recipe.
 - Estimate calories per serving as an integer.
 """
@@ -492,7 +492,7 @@ Rules:
                                 "ingredients": {"type": "array", "items": {"type": "string"}},
                                 "steps":       {"type": "array", "items": {"type": "string"}},
                             },
-                            "required": ["title", "ingredients", "steps"],
+                            "required": ["title", "description", "calories", "servings", "prep_time", "cook_time", "ingredients", "steps"],
                         },
                     }
                 },
@@ -988,7 +988,7 @@ Rules:
 - Dinner is the main meal of the day.
 - STRICTLY follow all dietary requirements and allergen warnings – this is a food safety requirement.
 - Vary meals across days – do not repeat the same meal more than once.
-- Include realistic prep_time and cook_time strings (e.g. "5 mins", "25 mins").
+- Always provide BOTH prep_time and cook_time as non-empty strings (e.g. "5 mins", "10 mins"). If there is no distinct cooking step, set cook_time to "0 mins".
 - Each meal needs a short one-sentence description.
 - Estimate calories per serving as an integer.
 - Assume basic pantry staples (oil, butter, salt, pepper, garlic, eggs) are available.
@@ -1006,7 +1006,7 @@ Rules:
                 "ingredients": {"type": "array", "items": {"type": "string"}},
                 "steps":       {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["title", "description", "calories", "ingredients", "steps"],
+            "required": ["title", "description", "calories", "servings", "prep_time", "cook_time", "ingredients", "steps"],
         }
 
         plan_schema = {

@@ -403,8 +403,10 @@ function MainApp() {
   const [savedSearch, setSavedSearch] = useState('');
   const [savedCategoryFilter, setSavedCategoryFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all');
 
-  // Recipe generation meal type
+  // Recipe generation meal type (ingredients screen selector)
   const [recipeMealType, setRecipeMealType] = useState<'any' | 'breakfast' | 'lunch' | 'dinner'>('any');
+  // Tag picker in recipe detail — decoupled from ingredients screen
+  const [recipeDetailCategory, setRecipeDetailCategory] = useState<'breakfast' | 'lunch' | 'dinner' | null>(null);
 
   // Auth
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -1030,6 +1032,7 @@ function MainApp() {
       const data = await res.json();
       if (res.ok) {
         setDetectedIngredients(data.detected_ingredients || []);
+        setRecipeMealType('any');
         navigate('ingredients');
       } else {
         Alert.alert('Error', data.error || 'Detection failed.');
@@ -1202,7 +1205,7 @@ function MainApp() {
 
           <TouchableOpacity
             style={[styles.homeCardSecondary, { backgroundColor: '#1E40AF' }]}
-            onPress={() => { setDetectedIngredients([]); navigate('ingredients'); }}
+            onPress={() => { setDetectedIngredients([]); setRecipeMealType('any'); navigate('ingredients'); }}
             activeOpacity={0.85}
           >
             <View style={styles.homeCardTextBlock}>
@@ -1499,7 +1502,7 @@ function MainApp() {
             <TouchableOpacity
               key={i}
               style={styles.recipeCard}
-              onPress={() => { setViewingRecipe(r); navigate('recipeDetail'); }}
+              onPress={() => { setViewingRecipe(r); setRecipeDetailCategory(recipeMealType !== 'any' ? recipeMealType as 'breakfast' | 'lunch' | 'dinner' : null); navigate('recipeDetail'); }}
               activeOpacity={0.85}
             >
               <View style={styles.recipeCardHeader}>
@@ -1514,6 +1517,7 @@ function MainApp() {
                 <Text style={styles.recipeCardDesc}>{r.description}</Text>
               ) : null}
               <View style={styles.recipeCardMeta}>
+                {recipeMealType !== 'any' && <Text style={[styles.metaChip, { backgroundColor: '#CCFBF1', borderColor: '#99F6E4', color: '#0F766E', fontWeight: '700' }]}>{recipeMealType.charAt(0).toUpperCase() + recipeMealType.slice(1)}</Text>}
                 {r.prep_time && <Text style={styles.metaChip}>Prep: {r.prep_time}</Text>}
                 {r.cook_time && <Text style={styles.metaChip}>Cook: {r.cook_time}</Text>}
                 {r.calories && <Text style={styles.metaChip}>{r.calories} kcal</Text>}
@@ -1588,30 +1592,41 @@ function MainApp() {
 
             {r && !isSaved && (
               <>
-                <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Save As</Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                  {(['breakfast', 'lunch', 'dinner'] as const).map(mt => (
+                {!recipeDetailCategory && (
+                  <>
+                    <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Save As</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                      {(['breakfast', 'lunch', 'dinner'] as const).map(mt => (
+                        <TouchableOpacity
+                          key={mt}
+                          onPress={() => setRecipeDetailCategory(mt)}
+                          style={[
+                            styles.metaChip,
+                            { paddingVertical: 7, paddingHorizontal: 14 },
+                          ]}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: '#64748B' }}>
+                            {mt.charAt(0).toUpperCase() + mt.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                     <TouchableOpacity
-                      key={mt}
-                      onPress={() => setRecipeMealType(mt)}
-                      style={[
-                        styles.metaChip,
-                        { paddingVertical: 7, paddingHorizontal: 14 },
-                        recipeMealType === mt && { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
-                      ]}
+                      style={[styles.btn, { backgroundColor: '#94A3B8' }]}
+                      onPress={() => Alert.alert('Select a meal type', 'Please choose Breakfast, Lunch, or Dinner before saving.')}
                     >
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: recipeMealType === mt ? '#fff' : '#64748B' }}>
-                        {mt.charAt(0).toUpperCase() + mt.slice(1)}
-                      </Text>
+                      <Text style={styles.btnText}>Save Recipe</Text>
                     </TouchableOpacity>
-                  ))}
-                </View>
-                <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: '#10B981' }]}
-                  onPress={() => saveRecipe(r)}
-                >
-                  <Text style={styles.btnText}>Save Recipe</Text>
-                </TouchableOpacity>
+                  </>
+                )}
+                {recipeDetailCategory && (
+                  <TouchableOpacity
+                    style={[styles.btn, { marginTop: 20, backgroundColor: '#10B981' }]}
+                    onPress={() => saveRecipe(r, recipeDetailCategory)}
+                  >
+                    <Text style={styles.btnText}>Save Recipe</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
             {r && isSaved && (
@@ -1713,7 +1728,7 @@ function MainApp() {
                 <TouchableOpacity
                   key={i}
                   style={[styles.card, { marginBottom: 12 }]}
-                  onPress={() => { setViewingRecipe(item); navigate('recipeDetail'); }}
+                  onPress={() => { setViewingRecipe(item); setRecipeDetailCategory((item as SavedRecipe).category ?? null); navigate('recipeDetail'); }}
                 >
                   <Text style={styles.sectionTitle}>{item.title}</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
