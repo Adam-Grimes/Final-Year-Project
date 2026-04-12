@@ -54,7 +54,7 @@ load_dotenv(dotenv_path=ENV_PATH)
 BASE_DIR = Path(getattr(settings, 'BASE_DIR', CURRENT_DIR.parent)).resolve()
 
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-GEMINI_MODEL_NAME = "models/gemini-2.5-flash"
+GEMINI_MODEL_NAME = "models/gemini-2.5-flash-lite"
 
 # AI models are heavy; avoid loading or downloading them at import time.
 YOLO_MODEL_PATH = BASE_DIR / 'yolov8l-worldv2.pt'
