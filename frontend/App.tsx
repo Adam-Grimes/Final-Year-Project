@@ -522,6 +522,57 @@ function MainApp() {
     } catch {}
   };
 
+  // --- Authenticated fetch with automatic token refresh ---
+  // Wraps fetch for all authenticated API calls. If the server returns 401
+  // (expired access token), silently exchanges the stored refresh token for a
+  // new access token, updates AsyncStorage + state, then retries the original
+  // request once. If the refresh itself fails the user is logged out cleanly.
+  const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    const currentToken = authToken;
+    const response = await fetch(url, {
+      ...options,
+      headers: { ...(options.headers ?? {}), Authorization: `Bearer ${currentToken}` },
+    });
+
+    if (response.status !== 401) return response;
+
+    // Try to refresh
+    try {
+      const refreshToken = await AsyncStorage.getItem('auth_refresh_token');
+      if (!refreshToken) throw new Error('No refresh token stored.');
+
+      const refreshRes = await fetch(`${BASE_URL}/auth/token/refresh/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh: refreshToken }),
+      });
+
+      if (!refreshRes.ok) throw new Error('Refresh failed.');
+
+      const refreshData = await refreshRes.json();
+      const newAccess: string = refreshData.access;
+
+      // Persist and update state
+      await AsyncStorage.setItem('auth_token', newAccess);
+      setAuthToken(newAccess);
+
+      // Retry the original request with the new token
+      return fetch(url, {
+        ...options,
+        headers: { ...(options.headers ?? {}), Authorization: `Bearer ${newAccess}` },
+      });
+    } catch {
+      // Refresh token is expired or missing — force logout
+      await AsyncStorage.multiRemove(['auth_token', 'auth_refresh_token', 'auth_email']);
+      setAuthToken(null);
+      setAuthEmail(null);
+      setScreen('auth');
+      setScreenHistory([]);
+      Alert.alert('Session expired', 'Please sign in again.');
+      return response; // return the original 401
+    }
+  };
+
   // --- Navigation ---
   const navigate = (next: Screen) => {
     setScreenHistory(h => [...h, screen]);
@@ -611,6 +662,7 @@ function MainApp() {
       const data = await res.json();
       if (res.ok) {
         await AsyncStorage.setItem('auth_token', data.access);
+        await AsyncStorage.setItem('auth_refresh_token', data.refresh);
         await AsyncStorage.setItem('auth_email', data.email);
         setAuthToken(data.access);
         setAuthEmail(data.email);
@@ -639,7 +691,7 @@ function MainApp() {
   };
 
   const handleLogout = async () => {
-    await AsyncStorage.multiRemove(['auth_token', 'auth_email']);
+    await AsyncStorage.multiRemove(['auth_token', 'auth_refresh_token', 'auth_email']);
     setAuthToken(null);
     setAuthEmail(null);
     goHome();
@@ -734,9 +786,9 @@ function MainApp() {
     if (!authToken) return;
     setProfileLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/auth/profile/`, {
+      const res = await authFetch(`${BASE_URL}/auth/profile/`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           calorie_goal: prefs.calorieGoal,
           allergies: prefs.allergies.join(', '),
@@ -762,9 +814,9 @@ function MainApp() {
     setCpLoading(true);
     setCpError('');
     try {
-      const res = await fetch(`${BASE_URL}/auth/change-password/`, {
+      const res = await authFetch(`${BASE_URL}/auth/change-password/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ old_password: cpOld, new_password: cpNew }),
       });
       const data = await res.json();
@@ -787,9 +839,9 @@ function MainApp() {
     try {
       let backendId: number | undefined;
       if (authToken) {
-        const res = await fetch(`${BASE_URL}/recipes/`, {
+        const res = await authFetch(`${BASE_URL}/recipes/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: r.title,
             description: r.description || '',
@@ -819,9 +871,8 @@ function MainApp() {
     try {
       const target = savedRecipes.find(r => r.savedAt === savedAt);
       if (target?.backendId && authToken) {
-        await fetch(`${BASE_URL}/recipes/${target.backendId}/`, {
+        await authFetch(`${BASE_URL}/recipes/${target.backendId}/`, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${authToken}` },
         });
       }
       const updated = savedRecipes.filter(r => r.savedAt !== savedAt);
@@ -841,9 +892,9 @@ function MainApp() {
     setLoadingText('Building your meal plan...');
     setLoading(true);
     try {
-      const res = await fetch(`${BASE_URL}/meal-plans/generate/`, {
+      const res = await authFetch(`${BASE_URL}/meal-plans/generate/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           duration_days: mealPlanDays,
           name: mealPlanName.trim() || `${mealPlanDays}-Day Meal Plan`,
@@ -870,9 +921,9 @@ function MainApp() {
     const token = tokenOverride ?? authToken;
     if (!token) return;
     try {
-      const res = await fetch(`${BASE_URL}/meal-plans/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = tokenOverride
+        ? await fetch(`${BASE_URL}/meal-plans/`, { headers: { Authorization: `Bearer ${token}` } })
+        : await authFetch(`${BASE_URL}/meal-plans/`);
       if (res.ok) setMealPlans(await res.json());
     } catch {}
   };
@@ -880,9 +931,8 @@ function MainApp() {
   const deleteMealPlan = async (id: number) => {
     if (!authToken) return;
     try {
-      await fetch(`${BASE_URL}/meal-plans/${id}/`, {
+      await authFetch(`${BASE_URL}/meal-plans/${id}/`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
       });
       setMealPlans(prev => prev.filter(p => p.id !== id));
       if (viewingPlan?.id === id) { setViewingPlan(null); goBack(); }
@@ -894,16 +944,14 @@ function MainApp() {
   const swapMealWithSaved = async (mealId: number, savedRecipeId: number) => {
     if (!authToken) return;
     try {
-      const res = await fetch(`${BASE_URL}/meal-plan-meals/${mealId}/`, {
+      const res = await authFetch(`${BASE_URL}/meal-plan-meals/${mealId}/`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ saved_recipe_id: savedRecipeId }),
       });
       if (res.ok) {
         // Refresh the viewing plan
-        const planRes = await fetch(`${BASE_URL}/meal-plans/${viewingPlan!.id}/`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
+        const planRes = await authFetch(`${BASE_URL}/meal-plans/${viewingPlan!.id}/`);
         if (planRes.ok) {
           const updated = await planRes.json();
           setViewingPlan(updated);
@@ -997,11 +1045,9 @@ function MainApp() {
     setLoading(true);
     setLoadingText('Chef Gemini is cooking up ideas...');
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-      const res = await fetch(`${BASE_URL}/generate-recipe/`, {
+      const res = await authFetch(`${BASE_URL}/generate-recipe/`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ingredients: detectedIngredients,
           preferences: {
