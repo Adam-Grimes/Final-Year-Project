@@ -10,10 +10,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 // --- CONFIGURATION ---
-// For local dev, set this to your laptop's IP on your local network.
-// For production, replace with your Railway URL e.g. 'https://your-app.up.railway.app/api'
-const YOUR_LAPTOP_IP = '192.168.1.88';
-const BASE_URL = `http://${YOUR_LAPTOP_IP}:8000/api`;
+// For local dev, swap BASE_URL back to: `http://${YOUR_LAPTOP_IP}:8000/api`
+const BASE_URL = 'https://final-year-project-production-a0c5.up.railway.app/api';
 
 // --- PREFERENCE OPTIONS (Irish-market focused) ---
 const CUISINE_OPTIONS = [

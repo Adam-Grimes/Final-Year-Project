@@ -19,6 +19,10 @@ autodoc_mock_imports = [
     'cv2',
     'google',
     'google.generativeai',
+    'google.api_core',
+    'google.api_core.exceptions',
+    'google.genai',
+    'PIL',
 ]
 
 # ---------------------------------------------------------------------------
