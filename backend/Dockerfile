@@ -15,8 +15,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Pre-download the CLIP text encoder weights that YOLOWorld needs for set_classes().
+# Baking them into the image avoids a 338 MB download on the first request,
+# which would OOM-kill the gunicorn worker on Railway.
+ENV YOLO_CONFIG_DIR=/app/.ultralytics
+RUN python -c "\
+import os; os.environ['YOLO_CONFIG_DIR']='/app/.ultralytics'; \
+from ultralytics import YOLOWorld; \
+m = YOLOWorld('yolov8l-worldv2.pt'); \
+m.set_classes(['food']); \
+print('YOLO pre-warm complete')"
+
 EXPOSE 8080
 
-# migrate, collectstatic and gunicorn all run at container start so that
-# SECRET_KEY and DATABASE_URL environment variables are available.
 CMD python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
