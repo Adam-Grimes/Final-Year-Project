@@ -1,4 +1,4 @@
-﻿--extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
 annotated-types==0.7.0
 anyio==4.12.1
 asgiref==3.11.1
@@ -12,7 +12,7 @@ cryptography==46.0.4
 cycler==0.12.1
 distro==1.9.0
 dj-database-url==3.1.2
-Django==6.0.2
+Django==6.0.4
 django-cors-headers==4.9.0
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
