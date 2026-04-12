@@ -1,11 +1,11 @@
 import os
 import json
 import random
+import threading
 from datetime import timedelta
 from PIL import Image
 import google.generativeai as genai
 import google.api_core.exceptions
-from ultralytics import YOLOWorld
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -50,31 +50,25 @@ if not ENV_PATH.exists():
     ENV_PATH = CURRENT_DIR.parent / '.env'
 load_dotenv(dotenv_path=ENV_PATH)
 
+# Prefer Django's BASE_DIR when available (avoids NameError during import)
+BASE_DIR = Path(getattr(settings, 'BASE_DIR', CURRENT_DIR.parent)).resolve()
+
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
-else:
-    print(f"WARNING: GOOGLE_API_KEY not found in {ENV_PATH}. Gemini API will be unavailable.")
-
-# Download YOLO model if not present (e.g. on Railway where the .pt is not in git)
-YOLO_MODEL_PATH = BASE_DIR / 'yolov8l-worldv2.pt'
-if not YOLO_MODEL_PATH.exists():
-    import urllib.request
-    YOLO_DOWNLOAD_URL = 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8l-worldv2.pt'
-    print(f"YOLO model not found — downloading from {YOLO_DOWNLOAD_URL} ...")
-    urllib.request.urlretrieve(YOLO_DOWNLOAD_URL, str(YOLO_MODEL_PATH))
-    print("YOLO model downloaded.")
-
-print("Loading AI Models...")
-yolo_model = YOLOWorld(str(YOLO_MODEL_PATH))
 GEMINI_MODEL_NAME = "models/gemini-2.5-flash"
-# Only instantiate the Gemini model if we have an API key
-gemini_model = None
-if GOOGLE_API_KEY:
-    gemini_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
-else:
-    print("Gemini model skipped due to missing API key.")
-yolo_model.set_classes([
+
+# AI models are heavy; avoid loading or downloading them at import time.
+YOLO_MODEL_PATH = BASE_DIR / 'yolov8l-worldv2.pt'
+
+_ai_init_lock = threading.Lock()
+
+# Backwards-compatible globals (tests patch these).
+# - `None` means "disabled/misconfigured".
+# - `_UNSET` means "not initialized yet".
+_UNSET = object()
+gemini_model = _UNSET
+yolo_model = _UNSET
+
+YOLO_CLASSES = [
     # Packaging / containers
     "bottle", "jar", "can", "tin", "carton", "tub", "container",
     "food package", "food bag", "plastic bag", "wrapper", "box",
@@ -90,8 +84,63 @@ yolo_model.set_classes([
     "cheese", "butter", "yogurt", "cream",
     # Dry / pantry
     "bread", "pasta", "rice bag", "cereal box", "flour bag",
-])
-print("AI Models Loaded.")
+]
+
+
+def get_gemini_model():
+    """Return a cached Gemini model instance or None if not configured."""
+    global gemini_model
+    if gemini_model is None:
+        return None
+    if gemini_model is not _UNSET:
+        return gemini_model
+    if not GOOGLE_API_KEY:
+        gemini_model = None
+        return None
+    with _ai_init_lock:
+        if gemini_model is _UNSET:
+            genai.configure(api_key=GOOGLE_API_KEY)
+            gemini_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+    return gemini_model
+
+
+def get_yolo_model():
+    """Return a cached YOLOWorld model instance.
+
+    If the weights file is missing, downloading is only attempted when
+    `DJANGO_DOWNLOAD_YOLO_MODEL=1` is set in the environment.
+    """
+    global yolo_model
+    if yolo_model is None:
+        raise FileNotFoundError("YOLO model is disabled.")
+    if yolo_model is not _UNSET:
+        return yolo_model
+
+    with _ai_init_lock:
+        if yolo_model is not _UNSET:
+            return yolo_model
+
+        if not YOLO_MODEL_PATH.exists():
+            if os.getenv('DJANGO_DOWNLOAD_YOLO_MODEL') == '1':
+                import urllib.request
+
+                yolo_download_url = 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8l-worldv2.pt'
+                print(f"YOLO model not found — downloading from {yolo_download_url} ...")
+                urllib.request.urlretrieve(yolo_download_url, str(YOLO_MODEL_PATH))
+                print("YOLO model downloaded.")
+            else:
+                raise FileNotFoundError(
+                    f"YOLO model weights not found at '{YOLO_MODEL_PATH}'. "
+                    "Provide the file or set DJANGO_DOWNLOAD_YOLO_MODEL=1 to allow downloading."
+                )
+
+        from ultralytics import YOLOWorld
+
+        model = YOLOWorld(str(YOLO_MODEL_PATH))
+        model.set_classes(YOLO_CLASSES)
+        yolo_model = model
+
+    return yolo_model
 
 class DetectIngredientsView(APIView):
     """
@@ -142,13 +191,22 @@ class DetectIngredientsView(APIView):
         if 'image' not in request.FILES:
             return Response({"error": "No image provided"}, status=status.HTTP_400_BAD_REQUEST)
         try:
+            gemini_model = get_gemini_model()
             if gemini_model is None:
-                return Response({"error": "Server misconfigured: missing GOOGLE_API_KEY"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response(
+                    {"error": "Server misconfigured: missing GOOGLE_API_KEY"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             image_file = request.FILES['image']
             MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
             if image_file.size > MAX_IMAGE_SIZE:
                 return Response({"error": "Image too large. Maximum size is 10 MB."}, status=status.HTTP_400_BAD_REQUEST)
             original_img = Image.open(image_file).convert('RGB')
+
+            try:
+                yolo_model = get_yolo_model()
+            except FileNotFoundError as e:
+                return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             # 1. Run YOLO
             img_w, img_h = original_img.size
@@ -392,6 +450,7 @@ class GenerateRecipeView(APIView):
         pref_string = "\n".join(f"  - {p}" for p in pref_parts)
 
         try:
+            gemini_model = get_gemini_model()
             if gemini_model is None:
                 return Response(
                     {"error": "Server misconfigured: missing GOOGLE_API_KEY"},
@@ -971,6 +1030,7 @@ Rules:
         }
 
         try:
+            gemini_model = get_gemini_model()
             if gemini_model is None:
                 return Response(
                     {"error": "Server misconfigured: missing GOOGLE_API_KEY"},
