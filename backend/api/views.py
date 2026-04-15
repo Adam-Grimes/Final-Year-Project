@@ -55,6 +55,7 @@ BASE_DIR = Path(getattr(settings, 'BASE_DIR', CURRENT_DIR.parent)).resolve()
 
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 GEMINI_MODEL_NAME = "models/gemini-2.5-flash-lite"
+GEMINI_DETECT_MODEL_NAME = "models/gemini-2.5-flash"
 
 # AI models are heavy; avoid loading or downloading them at import time.
 YOLO_MODEL_PATH = BASE_DIR / 'yolov8l-worldv2.pt'
@@ -66,6 +67,7 @@ _ai_init_lock = threading.Lock()
 # - `_UNSET` means "not initialized yet".
 _UNSET = object()
 gemini_model = _UNSET
+gemini_detect_model = _UNSET
 yolo_model = _UNSET
 
 YOLO_CLASSES = [
@@ -88,7 +90,7 @@ YOLO_CLASSES = [
 
 
 def get_gemini_model():
-    """Return a cached Gemini model instance or None if not configured."""
+    """Return a cached Gemini lite model instance or None if not configured."""
     global gemini_model
     if gemini_model is None:
         return None
@@ -102,6 +104,23 @@ def get_gemini_model():
             genai.configure(api_key=GOOGLE_API_KEY)
             gemini_model = genai.GenerativeModel(GEMINI_MODEL_NAME)
     return gemini_model
+
+
+def get_gemini_detect_model():
+    """Return a cached Gemini 2.5 Flash model instance for detection, or None if not configured."""
+    global gemini_detect_model
+    if gemini_detect_model is None:
+        return None
+    if gemini_detect_model is not _UNSET:
+        return gemini_detect_model
+    if not GOOGLE_API_KEY:
+        gemini_detect_model = None
+        return None
+    with _ai_init_lock:
+        if gemini_detect_model is _UNSET:
+            genai.configure(api_key=GOOGLE_API_KEY)
+            gemini_detect_model = genai.GenerativeModel(GEMINI_DETECT_MODEL_NAME)
+    return gemini_detect_model
 
 
 def get_yolo_model():
@@ -191,7 +210,7 @@ class DetectIngredientsView(APIView):
         if 'image' not in request.FILES:
             return Response({"error": "No image provided"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            gemini_model = get_gemini_model()
+            gemini_model = get_gemini_detect_model()
             if gemini_model is None:
                 return Response(
                     {"error": "Server misconfigured: missing GOOGLE_API_KEY"},
