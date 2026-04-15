@@ -32,7 +32,7 @@ class DetectIngredientsViewTests(APITestCase):
         self.image_file.seek(0)
         
     @patch('api.views.yolo_model')
-    @patch('api.views.gemini_model')
+    @patch('api.views.gemini_detect_model')
     def test_detect_ingredients_success_with_yolo(self, mock_gemini, mock_yolo):
         """
         Test successful ingredient detection when YOLO finds items.
@@ -67,7 +67,7 @@ class DetectIngredientsViewTests(APITestCase):
         mock_gemini.generate_content.assert_called_once()
 
     @patch('api.views.yolo_model')
-    @patch('api.views.gemini_model')
+    @patch('api.views.gemini_detect_model')
     def test_detect_ingredients_success_fallback(self, mock_gemini, mock_yolo):
         """
         Test successful ingredient detection when YOLO returns no boxes (Fallback to full image).
@@ -91,7 +91,7 @@ class DetectIngredientsViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['detected_ingredients'], ["apple"])
 
-    @patch('api.views.gemini_model')
+    @patch('api.views.gemini_detect_model')
     def test_detect_ingredients_no_image(self, mock_gemini):
         """
         Test failure when no image is provided.
@@ -101,7 +101,7 @@ class DetectIngredientsViewTests(APITestCase):
         self.assertIn("error", response.data)
 
     @patch('api.views.yolo_model')
-    @patch('api.views.gemini_model')
+    @patch('api.views.gemini_detect_model')
     def test_detect_ingredients_gemini_error(self, mock_gemini, mock_yolo):
         """
         Test handling of Gemini API errors.
@@ -122,7 +122,7 @@ class DetectIngredientsViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.data['error'], "API Error")
 
-    @patch('api.views.gemini_model', None)
+    @patch('api.views.gemini_detect_model', None)
     def test_detect_ingredients_missing_api_key(self):
         """
         Test failure when Gemini model is not initialized (missing API Key).
@@ -136,7 +136,7 @@ class DetectIngredientsViewTests(APITestCase):
         self.assertIn("Server misconfigured", response.data['error'])
 
     @patch('api.views.yolo_model')
-    @patch('api.views.gemini_model')
+    @patch('api.views.gemini_detect_model')
     def test_detect_ingredients_empty_result_returns_empty_list(self, mock_gemini, mock_yolo):
         """
         State test: when Gemini returns an empty ingredients list, the response
@@ -160,7 +160,7 @@ class DetectIngredientsViewTests(APITestCase):
         self.assertEqual(response.data['detected_ingredients'], [])
 
     @patch('api.views.yolo_model')
-    @patch('api.views.gemini_model')
+    @patch('api.views.gemini_detect_model')
     def test_detect_ingredients_malformed_json_returns_500(self, mock_gemini, mock_yolo):
         """
         State test: when Gemini returns text that is not valid JSON, the view
