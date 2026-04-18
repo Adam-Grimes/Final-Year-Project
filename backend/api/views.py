@@ -248,6 +248,7 @@ class DetectIngredientsView(APIView):
                 # Base prompt for Hybrid Mode
                 prompt_parts.append(
                     "You are an AI Chef. Identify the food ingredients in these cropped images. "
+                    "Use Irish/UK English ingredient names (e.g., 'courgette' instead of 'zucchini', 'aubergine' instead of 'eggplant'). "
                     "Ignore non-food items. Return a JSON object with a single list called 'ingredients'."
                 )
                 prompt_parts.append(original_img)  # Context
