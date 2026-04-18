@@ -56,7 +56,7 @@ The system follows a standard Client-Server architecture:
 
 This project is being developed using Agile methodology with 2-week sprints.
 
-* [x] **Weeks 1-4:** Backend Setup, Unit Testiing, Django REST API implementation, YOLO integration, Gemini API connection.
+* [x] **Weeks 1-4:** Backend Setup, Unit Testing, Django REST API implementation, YOLO integration, Gemini API connection.
 * [x] **Weeks 5-9:** Frontend Mobile App Development (React Native UI/UX, Camera integration, API fetch).
 * [x] **Weeks 10-12:** Full-stack Integration, and Final Documentation.
 
