@@ -1,4 +1,4 @@
-﻿--extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
 annotated-types==0.7.0
 anyio==4.12.1
 asgiref==3.11.1
@@ -60,7 +60,7 @@ pydantic_core==2.41.5
 PyJWT==2.11.0
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 PyYAML==6.0.3
 regex==2026.1.15
 requests==2.32.5
