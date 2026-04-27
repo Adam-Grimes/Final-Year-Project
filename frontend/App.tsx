@@ -112,15 +112,11 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
-// =========================================================================
-// CONFIGURATION
-// =========================================================================
+// --- CONFIGURATION ---
 // For local dev, swap BASE_URL back to: `http://${YOUR_LAPTOP_IP}:8000/api`
 const BASE_URL = 'https://final-year-project-production-a0c5.up.railway.app/api';
 
-// =========================================================================
-// PREFERENCE OPTIONS (Irish-market focused)
-// =========================================================================
+// --- PREFERENCE OPTIONS (Irish-market focused) ---
 const CUISINE_OPTIONS = [
   'Irish Traditional', 'Irish-Chinese', 'Irish-Indian', 'Irish-Italian',
   'Italian', 'Mexican', 'American BBQ', 'Mediterranean', 'Asian Fusion',
@@ -142,10 +138,7 @@ const ALLERGY_OPTIONS = [
 const CALORIE_PRESETS = [1200, 1500, 1800, 2000, 2500, 3000];
 const COOKING_SKILLS = ['Beginner', 'Intermediate', 'Chef Level'];
 
-// =========================================================================
-// TYPE DEFINITIONS
-// =========================================================================
-// Defines all screen types, data structures, and interfaces used throughout the app
+// --- TYPES ---
 type Screen =
   | 'home' | 'camera' | 'preview' | 'ingredients'
   | 'recipeSelect' | 'recipeDetail'
@@ -155,23 +148,21 @@ type Screen =
 
 type AuthSubMode = 'login' | 'register' | 'forgotStep1' | 'forgotStep2';
 
-// Recipe interface - represents a single recipe with ingredients and instructions
 interface Recipe {
   title: string;
   description?: string;
-  ingredients: string[]; // Array of ingredient items
-  steps: string[]; // Array of cooking steps
-  calories?: number; // Optional nutritional information
+  ingredients: string[];
+  steps: string[];
+  calories?: number;
   servings?: number;
-  prep_time?: string; // Preparation time (e.g., "15 mins")
-  cook_time?: string; // Cooking time (e.g., "30 mins")
+  prep_time?: string;
+  cook_time?: string;
 }
 
-// SavedRecipe interface - extends Recipe with metadata about saved recipes
 interface SavedRecipe extends Recipe {
-  savedAt: string; // ISO timestamp when recipe was saved
-  backendId?: number; // Backend database ID for cloud sync
-  category?: 'breakfast' | 'lunch' | 'dinner'; // Meal type classification
+  savedAt: string;
+  backendId?: number;
+  category?: 'breakfast' | 'lunch' | 'dinner';
 }
 
 interface MealPlanMeal {
@@ -211,35 +202,27 @@ interface Preferences {
   customText: string;
 }
 
-// =========================================================================
-// DEFAULT PREFERENCES
-// =========================================================================
-// Default user preferences used when no preferences have been set
 const DEFAULT_PREFS: Preferences = {
   cuisines: [],
   dietary: [],
   allergies: [],
-  calorieGoal: 2000, // Default daily calorie target
-  cookingSkill: 'Intermediate', // Default cooking skill level
-  customText: '', // Additional custom instructions
+  calorieGoal: 2000,
+  cookingSkill: 'Intermediate',
+  customText: '',
 };
 
-// =========================================================================
-// UTILITY FUNCTIONS - Preference Management
-// =========================================================================
-// Normalizes preference lists by removing duplicates, empty strings, and trimming whitespace
 const normalizePreferenceList = (items: unknown): string[] => {
   if (!Array.isArray(items)) return [];
 
-  const seen = new Set<string>(); // Track unique items (case-insensitive)
+  const seen = new Set<string>();
   const normalized: string[] = [];
 
   items.forEach(item => {
     const cleaned = String(item ?? '').trim();
-    if (!cleaned) return; // Skip empty strings
+    if (!cleaned) return;
 
     const dedupeKey = cleaned.toLowerCase();
-    if (seen.has(dedupeKey)) return; // Skip duplicates
+    if (seen.has(dedupeKey)) return;
 
     seen.add(dedupeKey);
     normalized.push(cleaned);
@@ -248,13 +231,11 @@ const normalizePreferenceList = (items: unknown): string[] => {
   return normalized;
 };
 
-// Parses comma-separated preference string into normalized array
 const parsePreferenceCsv = (value: unknown): string[] =>
   normalizePreferenceList(
     typeof value === 'string' ? value.split(',') : []
   );
 
-// Ensures preferences are in valid format, using defaults for missing/invalid fields
 const normalizePreferences = (prefs: Partial<Preferences> | null | undefined): Preferences => ({
   cuisines: normalizePreferenceList(prefs?.cuisines ?? []),
   dietary: normalizePreferenceList(prefs?.dietary ?? []),
@@ -270,14 +251,6 @@ const normalizePreferences = (prefs: Partial<Preferences> | null | undefined): P
 
 type ListPreferenceKey = 'cuisines' | 'dietary' | 'allergies';
 
-/**
- * ToggleChip Component
- * =========================================================================
- * Reusable button component for selecting/deselecting preference options
- * - Shows as a chip/pill-shaped button
- * - Changes style based on selection state (selected/unselected)
- * - Used throughout preference selection UI
- */
 const ToggleChip = ({
   label,
   selected,
@@ -296,45 +269,26 @@ const ToggleChip = ({
   </TouchableOpacity>
 );
 
-/**
- * PreferencesSectionProps Interface
- * =========================================================================
- * Props for the PreferencesSection component which renders the full
- * preference/dietary settings UI
- */
 interface PreferencesSectionProps {
-  compact?: boolean; // If true, hides calorie/cooking skill/instructions sections
-  preferences: Preferences; // Current user preferences
-  customCuisineText: string; // User's custom cuisine input
-  customDietaryText: string; // User's custom dietary input
-  customAllergyText: string; // User's custom allergy input
-  customCalorieText: string; // User's custom calorie input
-  setCustomCuisineText: (value: string) => void; // Update custom cuisine input
-  setCustomDietaryText: (value: string) => void; // Update custom dietary input
-  setCustomAllergyText: (value: string) => void; // Update custom allergy input
-  setCustomCalorieText: (value: string) => void; // Update custom calorie input
-  updatePref: (key: keyof Preferences, value: Preferences[keyof Preferences]) => void; // Update preference value
-  toggleList: (list: string[], value: string) => string[]; // Toggle item in/out of array
-  addCustomPrefItem: ( // Add new custom preference item
+  compact?: boolean;
+  preferences: Preferences;
+  customCuisineText: string;
+  customDietaryText: string;
+  customAllergyText: string;
+  customCalorieText: string;
+  setCustomCuisineText: (value: string) => void;
+  setCustomDietaryText: (value: string) => void;
+  setCustomAllergyText: (value: string) => void;
+  setCustomCalorieText: (value: string) => void;
+  updatePref: (key: keyof Preferences, value: Preferences[keyof Preferences]) => void;
+  toggleList: (list: string[], value: string) => string[];
+  addCustomPrefItem: (
     key: ListPreferenceKey,
     value: string,
     clearFn: () => void,
   ) => void;
 }
 
-/**
- * PreferencesSection Component
- * =========================================================================
- * Renders comprehensive UI for setting all user preferences:
- * - Cuisine selection (preset + custom)
- * - Dietary restrictions (preset + custom)
- * - Allergies (preset + custom)
- * - Calorie goals (when not in compact mode)
- * - Cooking skill level (when not in compact mode)
- * - Custom instructions/notes (when not in compact mode)
- * 
- * In compact mode, only shows basic preferences (cuisine/dietary/allergies)
- */
 const PreferencesSection = ({
   compact = false,
   preferences,
@@ -509,211 +463,121 @@ const PreferencesSection = ({
   </View>
 );
 
-// =========================================================================
-// MAIN APP COMPONENT
-// =========================================================================
-// Root component managing all app state, navigation, and API interactions
+// --- MAIN APP ---
 function MainApp() {
-  // =========================================================================
-  // CAMERA & PERMISSIONS
-  // =========================================================================
-  // =========================================================================
-  // MAIN APP COMPONENT STATE INITIALIZATION
-  // =========================================================================
-  // This component uses React hooks for state management. The main state groups:
-  // 
-  // 1. CAMERA & PERMISSIONS
-  //    - cameraPermission/mediaLibraryPermission: Expo camera/gallery permissions
-  //    - isCameraActive: Fullscreen camera mode toggle
-  //    - photoUri: URI of captured or selected photo
-  //    - cameraRef: Reference to camera component for taking photos
-  //
-  // 2. NAVIGATION
-  //    - screen: Current active screen (home, camera, preview, etc.)
-  //    - screenHistory: Stack of previous screens for back button navigation
-  //
-  // 3. INGREDIENTS & RECIPES
-  //    - detectedIngredients: List of ingredients detected from photo
-  //    - generatedRecipes: AI-generated recipe suggestions from backend
-  //    - savedRecipes: Recipes saved by user (local + backend synced)
-  //    - viewingRecipe: Currently viewed recipe details
-  //
-  // 4. USER AUTHENTICATION
-  //    - authToken: JWT access token for API requests
-  //    - authEmail: Logged-in user's email address
-  //    - Auth error/loading states for login, register, password reset flows
-  //
-  // 5. MEAL PLANS
-  //    - mealPlans: Array of user's generated meal plans
-  //    - viewingPlan/viewingMeal: Currently viewed meal plan or specific meal
-  //    - Meal plan configuration (days, name) and swap modal state
-  //
-  // 6. USER PREFERENCES
-  //    - preferences: User's cuisine, dietary, allergy preferences, etc.
-  //    - Custom input fields for each preference type\n  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaLibraryPermission, requestMediaLibraryPermission] = ImagePicker.useMediaLibraryPermissions();
 
-  // =========================================================================
-  // NAVIGATION STATE
-  // =========================================================================
-  const [screen, setScreen] = useState<Screen>('home'); // Current screen
-  const [screenHistory, setScreenHistory] = useState<Screen[]>([]); // Stack for back navigation
+  // Navigation
+  const [screen, setScreen] = useState<Screen>('home');
+  const [screenHistory, setScreenHistory] = useState<Screen[]>([]);
 
-  // =========================================================================
-  // LOADING & UI STATE
-  // =========================================================================
-  const [loading, setLoading] = useState(false); // Global loading overlay
-  const [loadingText, setLoadingText] = useState(''); // Loading message text
+  // Loading
+  const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('');
 
-  // =========================================================================
-  // CAMERA & PHOTO STATE
-  // =========================================================================
-  const [isCameraActive, setIsCameraActive] = useState(false); // Camera fullscreen mode
-  const [photoUri, setPhotoUri] = useState<string | null>(null); // URI of captured/selected photo
-  const cameraRef = useRef<CameraView>(null); // Reference to camera component
+  // Camera / Photo
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const cameraRef = useRef<CameraView>(null);
 
-  // =========================================================================
-  // INGREDIENTS & RECIPE GENERATION STATE
-  // =========================================================================
   // Ingredients
-  const [detectedIngredients, setDetectedIngredients] = useState<string[]>([]); // List of detected/entered ingredients
-  const [newIngredientText, setNewIngredientText] = useState(''); // Input field for adding ingredients
-  const [showPrefsModal, setShowPrefsModal] = useState(false); // Preferences modal visibility
+  const [detectedIngredients, setDetectedIngredients] = useState<string[]>([]);
+  const [newIngredientText, setNewIngredientText] = useState('');
+  const [showPrefsModal, setShowPrefsModal] = useState(false);
 
-  // =========================================================================
-  // USER PREFERENCE INPUTS
-  // =========================================================================
   // Custom preference inputs
-  const [customCuisineText, setCustomCuisineText] = useState(''); // Text input for custom cuisine
-  const [customDietaryText, setCustomDietaryText] = useState(''); // Text input for custom dietary needs
-  const [customAllergyText, setCustomAllergyText] = useState(''); // Text input for custom allergies
-  const [customCalorieText, setCustomCalorieText] = useState(''); // Text input for calorie goal
-  const didInitPreferenceAutosave = useRef(false); // Flag to prevent sync on initial load
-  const preferenceSyncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null); // Debounce timer for preference sync
+  const [customCuisineText, setCustomCuisineText] = useState('');
+  const [customDietaryText, setCustomDietaryText] = useState('');
+  const [customAllergyText, setCustomAllergyText] = useState('');
+  const [customCalorieText, setCustomCalorieText] = useState('');
+  const didInitPreferenceAutosave = useRef(false);
+  const preferenceSyncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openPrefsModal = () => setShowPrefsModal(true);
   const closePrefsModal = () => setShowPrefsModal(false);
 
-  // =========================================================================
-  // RECIPES STATE
-  // =========================================================================
   // Recipes
-  const [generatedRecipes, setGeneratedRecipes] = useState<Recipe[]>([]); // AI-generated recipe suggestions
-  const [viewingRecipe, setViewingRecipe] = useState<SavedRecipe | Recipe | null>(null); // Currently viewed recipe
+  const [generatedRecipes, setGeneratedRecipes] = useState<Recipe[]>([]);
+  const [viewingRecipe, setViewingRecipe] = useState<SavedRecipe | Recipe | null>(null);
 
-  // =========================================================================
-  // SAVED RECIPES STATE
-  // =========================================================================
   // Saved
-  const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]); // All saved recipes
-  const [savedSearch, setSavedSearch] = useState(''); // Search filter for saved recipes
-  const [savedCategoryFilter, setSavedCategoryFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all'); // Meal type filter
+  const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
+  const [savedSearch, setSavedSearch] = useState('');
+  const [savedCategoryFilter, setSavedCategoryFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all');
 
-  // =========================================================================
-  // RECIPE GENERATION CONTEXT
-  // =========================================================================
   // Recipe generation meal type (ingredients screen selector)
-  const [recipeMealType, setRecipeMealType] = useState<'any' | 'breakfast' | 'lunch' | 'dinner'>('any'); // Meal type for recipe generation
+  const [recipeMealType, setRecipeMealType] = useState<'any' | 'breakfast' | 'lunch' | 'dinner'>('any');
   // Tag picker in recipe detail — decoupled from ingredients screen
-  const [recipeDetailCategory, setRecipeDetailCategory] = useState<'breakfast' | 'lunch' | 'dinner' | null>(null); // Category when saving recipe
+  const [recipeDetailCategory, setRecipeDetailCategory] = useState<'breakfast' | 'lunch' | 'dinner' | null>(null);
 
-  // =========================================================================
-  // AUTHENTICATION STATE
-  // =========================================================================
   // Auth
-  const [authToken, setAuthToken] = useState<string | null>(null); // JWT access token
-  const [authEmail, setAuthEmail] = useState<string | null>(null); // Logged-in user email
-  const [authSubMode, setAuthSubMode] = useState<AuthSubMode>('login'); // Auth screen mode
-  const [authEmailInput, setAuthEmailInput] = useState(''); // Email input field
-  const [authPasswordInput, setAuthPasswordInput] = useState(''); // Password input field
-  const [authLoading, setAuthLoading] = useState(false); // Loading indicator
-  const [authError, setAuthError] = useState(''); // Error message
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const [authSubMode, setAuthSubMode] = useState<AuthSubMode>('login');
+  const [authEmailInput, setAuthEmailInput] = useState('');
+  const [authPasswordInput, setAuthPasswordInput] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
 
-  // =========================================================================
-  // PASSWORD RESET STATE
-  // =========================================================================
   // Forgot password
-  const [forgotEmail, setForgotEmail] = useState(''); // Email for password reset
-  const [forgotCode, setForgotCode] = useState(''); // Reset code from email
-  const [forgotNewPass, setForgotNewPass] = useState(''); // New password
-  const [forgotConfirmPass, setForgotConfirmPass] = useState(''); // Confirm password
-  const [forgotLoading, setForgotLoading] = useState(false); // Loading indicator
-  const [forgotError, setForgotError] = useState(''); // Error message
-  const [devToken, setDevToken] = useState(''); // DEV MODE: displayed reset token
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotCode, setForgotCode] = useState('');
+  const [forgotNewPass, setForgotNewPass] = useState('');
+  const [forgotConfirmPass, setForgotConfirmPass] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [devToken, setDevToken] = useState('');
 
-  // =========================================================================
-  // MEAL PLAN STATE
-  // =========================================================================
   // Meal plans
-  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]); // User's meal plans
-  const [viewingPlan, setViewingPlan] = useState<MealPlan | null>(null); // Currently viewed meal plan
-  const [viewingMeal, setViewingMeal] = useState<MealPlanMeal | null>(null); // Currently viewed meal
-  const [mealPlanDays, setMealPlanDays] = useState(3); // Duration for new meal plan
-  const [mealPlanName, setMealPlanName] = useState(''); // Name for new meal plan
-  const [mealPlanLoading, setMealPlanLoading] = useState(false); // Generation loading
-  const [swapModalVisible, setSwapModalVisible] = useState(false); // Meal swap modal visibility
-  const [swapTargetMealId, setSwapTargetMealId] = useState<number | null>(null); // Meal to swap
-  const [swapSearch, setSwapSearch] = useState(''); // Search for meals to swap
-  const [swapCategoryFilter, setSwapCategoryFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all'); // Filter for swap modal
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
+  const [viewingPlan, setViewingPlan] = useState<MealPlan | null>(null);
+  const [viewingMeal, setViewingMeal] = useState<MealPlanMeal | null>(null);
+  const [mealPlanDays, setMealPlanDays] = useState(3);
+  const [mealPlanName, setMealPlanName] = useState('');
+  const [mealPlanLoading, setMealPlanLoading] = useState(false);
+  const [swapModalVisible, setSwapModalVisible] = useState(false);
+  const [swapTargetMealId, setSwapTargetMealId] = useState<number | null>(null);
+  const [swapSearch, setSwapSearch] = useState('');
+  const [swapCategoryFilter, setSwapCategoryFilter] = useState<'all' | 'breakfast' | 'lunch' | 'dinner'>('all');
 
-  // =========================================================================
-  // PROFILE & ACCOUNT STATE
-  // =========================================================================
   // Profile
-  const [profileLoading, setProfileLoading] = useState(false); // Profile update loading
+  const [profileLoading, setProfileLoading] = useState(false);
 
-  // =========================================================================
-  // PASSWORD CHANGE STATE
-  // =========================================================================
   // Change password
-  const [cpOld, setCpOld] = useState(''); // Current password
-  const [cpNew, setCpNew] = useState(''); // New password
-  const [cpConfirm, setCpConfirm] = useState(''); // Password confirmation
-  const [cpLoading, setCpLoading] = useState(false); // Loading indicator
-  const [cpError, setCpError] = useState(''); // Error message
+  const [cpOld, setCpOld] = useState('');
+  const [cpNew, setCpNew] = useState('');
+  const [cpConfirm, setCpConfirm] = useState('');
+  const [cpLoading, setCpLoading] = useState(false);
+  const [cpError, setCpError] = useState('');
 
-  // =========================================================================
-  // USER PREFERENCES STATE
-  // =========================================================================
-  const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFS); // Current user preferences
+  // Preferences
+  const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFS);
 
-  // =========================================================================
-  // LOCAL STORAGE KEYS
-  // =========================================================================
-  const STORAGE_KEY = 'saved_recipes_v2'; // AsyncStorage key for recipes
-  const PREFS_KEY = 'user_preferences'; // AsyncStorage key for preferences
+  const STORAGE_KEY = 'saved_recipes_v2';
+  const PREFS_KEY = 'user_preferences';
 
-  // =========================================================================
-  // INITIALIZATION EFFECTS
-  // =========================================================================
-  // Init ---
-  // Load initial app data on mount
+  // --- Init ---
   useEffect(() => {
     (async () => {
-      // Parallel load: saved recipes, local preferences, and auth token
       await Promise.all([loadSavedRecipes(), loadLocalPreferences(), loadAuthToken()]);
     })();
   }, []);
 
-  // Auto-save preferences to local storage and sync to backend with debouncing
   useEffect(() => {
     if (!didInitPreferenceAutosave.current) {
       didInitPreferenceAutosave.current = true;
-      return; // Skip on initial load
+      return;
     }
 
-    // Save to local device storage immediately
     void saveLocalPreferences(preferences);
 
-    // Only sync to backend if authenticated
     if (!authToken) return;
 
-    // Cancel pending sync to debounce rapid updates
     if (preferenceSyncTimeout.current) {
       clearTimeout(preferenceSyncTimeout.current);
     }
 
-    // Debounce backend sync by 600ms
     preferenceSyncTimeout.current = setTimeout(() => {
       void syncPreferencesToBackend(preferences);
       preferenceSyncTimeout.current = null;
@@ -763,12 +627,11 @@ function MainApp() {
     } catch {}
   };
 
-  // =========================================================================
-  // AUTHENTICATED FETCH WITH AUTOMATIC TOKEN REFRESH
-  // =========================================================================
-  // Wraps all authenticated API calls with automatic token refresh on 401.
-  // If access token expires, automatically exchanges refresh token for new access token,
-  // updates storage, and retries the request. On failure, cleanly logs out user.
+  // --- Authenticated fetch with automatic token refresh ---
+  // Wraps fetch for all authenticated API calls. If the server returns 401
+  // (expired access token), silently exchanges the stored refresh token for a
+  // new access token, updates AsyncStorage + state, then retries the original
+  // request once. If the refresh itself fails the user is logged out cleanly.
   const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
     const currentToken = authToken;
     const response = await fetch(url, {
@@ -815,16 +678,12 @@ function MainApp() {
     }
   };
 
-  // =========================================================================
-  // NAVIGATION FUNCTIONS
-  // =========================================================================
-  // Navigate to new screen, pushing current screen onto history stack
+  // --- Navigation ---
   const navigate = (next: Screen) => {
     setScreenHistory(h => [...h, screen]);
     setScreen(next);
   };
 
-  // Go back to previous screen using navigation history
   const goBack = () => {
     setScreenHistory(h => {
       if (h.length === 0) { setScreen('home'); return []; }
@@ -834,11 +693,9 @@ function MainApp() {
     });
   };
 
-  // Navigate to home and reset all navigation/recipe state
   const goHome = () => {
     setScreen('home');
     setScreenHistory([]);
-    // Clear photo/recipe generation state
     setPhotoUri(null);
     setDetectedIngredients([]);
     setGeneratedRecipes([]);
@@ -847,40 +704,27 @@ function MainApp() {
     setShowPrefsModal(false);
   };
 
-  // =========================================================================
-  // BACKEND SYNCHRONIZATION
-  // =========================================================================
-  // BACKEND SYNCHRONIZATION: FETCH & MERGE SAVED RECIPES
-  // =========================================================================
-  // Fetch user's saved recipes from backend and intelligently merge with local cache
-  // This preserves local metadata (category, prep_time, cook_time) that may not exist on backend
-  // Strategy: Backend data is authoritative for title/ingredients/steps, but we keep local enrichments
+  // --- Backend sync ---
   const syncFromBackend = async (token: string) => {
     try {
-      // Fetch all saved recipes for this user from backend
       const res = await fetch(`${BASE_URL}/recipes/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
       if (res.ok) {
         const data = await res.json();
 
-        // Read local cache DIRECTLY from AsyncStorage (not from state)
-        // Why? Because state may not be populated yet when this runs in parallel with loadSavedRecipes on startup
+        // Read local cache directly from AsyncStorage (not state, which may not be
+        // populated yet when this runs in parallel with loadSavedRecipes on startup).
         // This lets us preserve category/prep_time/cook_time that were stored locally
-        // for recipes saved before those fields existed in the backend DB
+        // for recipes saved before those fields existed in the backend DB.
         let localCache: SavedRecipe[] = [];
         try {
           const stored = await AsyncStorage.getItem(STORAGE_KEY);
           if (stored) localCache = JSON.parse(stored);
         } catch {}
 
-        // Merge backend recipes with local cache
-        // For each backend recipe, try to find matching local recipe to get enrichment data
         const merged: SavedRecipe[] = data.map((r: any) => {
-          // Find if we have this recipe saved locally
           const local = localCache.find((lr: SavedRecipe) => lr.backendId === r.id);
-          
           return {
             title: r.title,
             description: r.description || undefined,
@@ -888,27 +732,20 @@ function MainApp() {
             steps: r.steps,
             calories: r.calories,
             servings: r.servings || undefined,
-            // Use backend data if available, fall back to local enrichment
             prep_time: r.prep_time || local?.prep_time || undefined,
             cook_time: r.cook_time || local?.cook_time || undefined,
-            // Similar fallback for category (meal type)
             category: (r.category || local?.category) as SavedRecipe['category'] | undefined,
-            savedAt: r.created_at, // Use backend creation timestamp
-            backendId: r.id, // Store backend ID for future syncs/deletes
+            savedAt: r.created_at,
+            backendId: r.id,
           };
         });
-        
-        // Update app state and persist merged data to local storage
         setSavedRecipes(merged);
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
       }
     } catch {}
   };
 
-  // =========================================================================
-  // AUTHENTICATION FUNCTIONS
-  // =========================================================================
-  // Handle login and registration
+  // --- Auth ---
   const handleAuth = async () => {
     if (!authEmailInput.trim() || !authPasswordInput.trim()) {
       setAuthError('Please enter your email and password.');
@@ -965,34 +802,20 @@ function MainApp() {
     goHome();
   };
 
-  // =========================================================================
-  // PASSWORD RESET FLOW - STEP 1: REQUEST RESET CODE
-  // =========================================================================
-  // Send password reset request to backend
-  // - Backend sends reset code via email (shows in dev_token for testing)
-  // - Transitions to Step 2 (enter code + new password)
+  // --- Forgot password ---
   const handleForgotRequest = async () => {
-    if (!forgotEmail.trim()) { 
-      setForgotError('Please enter your email.'); 
-      return; 
-    }
-    
+    if (!forgotEmail.trim()) { setForgotError('Please enter your email.'); return; }
     setForgotLoading(true);
     setForgotError('');
-    
     try {
-      // Request password reset code
       const res = await fetch(`${BASE_URL}/auth/forgot-password/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotEmail.trim().toLowerCase() }),
       });
-      
       const data = await res.json();
-      
       if (res.ok) {
-        // Success - show dev token in DEV MODE and move to step 2
-        setDevToken(data.dev_token || ''); // For development/testing
+        setDevToken(data.dev_token || '');
         setAuthSubMode('forgotStep2');
       } else {
         setForgotError(data.error || 'Something went wrong.');
@@ -1004,56 +827,34 @@ function MainApp() {
     }
   };
 
-  // =========================================================================
-  // PASSWORD RESET FLOW - STEP 2: RESET PASSWORD WITH CODE
-  // =========================================================================
-  // Validate reset code and new password, then update account
   const handleForgotReset = async () => {
-    // Validate all fields are filled
     if (!forgotCode.trim() || !forgotNewPass || !forgotConfirmPass) {
-      setForgotError('Please fill in all fields.'); 
-      return;
+      setForgotError('Please fill in all fields.'); return;
     }
-    
-    // Validate passwords match
     if (forgotNewPass !== forgotConfirmPass) {
-      setForgotError('Passwords do not match.'); 
-      return;
+      setForgotError('Passwords do not match.'); return;
     }
-    
-    // Validate password strength (minimum 6 characters)
     if (forgotNewPass.length < 6) {
-      setForgotError('Password must be at least 6 characters.'); 
-      return;
+      setForgotError('Password must be at least 6 characters.'); return;
     }
-    
     setForgotLoading(true);
     setForgotError('');
-    
     try {
-      // Submit password reset with code verification
       const res = await fetch(`${BASE_URL}/auth/reset-password/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: forgotEmail.trim().toLowerCase(),
-          token: forgotCode.trim(), // Reset code from email
+          token: forgotCode.trim(),
           new_password: forgotNewPass,
         }),
       });
-      
       const data = await res.json();
-      
       if (res.ok) {
-        // Success - show message and return to login
         Alert.alert('Success', data.message || 'Password reset. Please sign in.');
         setAuthSubMode('login');
-        // Clear form fields
-        setForgotEmail(''); 
-        setForgotCode(''); 
-        setForgotNewPass('');
-        setForgotConfirmPass(''); 
-        setDevToken('');
+        setForgotEmail(''); setForgotCode(''); setForgotNewPass('');
+        setForgotConfirmPass(''); setDevToken('');
       } else {
         setForgotError(data.error || 'Invalid or expired code.');
       }
@@ -1064,10 +865,7 @@ function MainApp() {
     }
   };
 
-  // =========================================================================
-  // PROFILE & PREFERENCES FUNCTIONS
-  // =========================================================================
-  // Load user profile and preferences from backend
+  // --- Profile ---
   const loadProfile = async (token: string) => {
     try {
       const res = await fetch(`${BASE_URL}/auth/profile/`, {
@@ -1141,10 +939,7 @@ function MainApp() {
     }
   };
 
-  // =========================================================================
-  // RECIPE MANAGEMENT FUNCTIONS
-  // =========================================================================
-  // Save recipe to local storage and optionally to backend
+  // --- Recipes ---
   const saveRecipe = async (r: Recipe, categoryOverride?: SavedRecipe['category']) => {
     try {
       let backendId: number | undefined;
@@ -1195,10 +990,7 @@ function MainApp() {
 
   const isRecipeSaved = (title: string) => savedRecipes.some(r => r.title === title);
 
-  // =========================================================================
-  // MEAL PLAN FUNCTIONS
-  // =========================================================================
-  // Generate AI meal plan based on duration and user preferences
+  // --- Meal Plan API ---
   const generateMealPlan = async () => {
     if (!authToken) { Alert.alert('Sign In Required', 'Please sign in to generate meal plans.'); return; }
     setMealPlanLoading(true);
@@ -1292,10 +1084,7 @@ function MainApp() {
     await saveRecipe(recipe, meal.meal_type as SavedRecipe['category']);
   };
 
-  // =========================================================================
-  // CAMERA & PHOTO FUNCTIONS
-  // =========================================================================
-  // Request permissions and activate camera
+  // --- Camera / Photo ---
   const startCamera = async () => {
     if (!cameraPermission?.granted) await requestCameraPermission();
     setIsCameraActive(true);
@@ -1330,10 +1119,7 @@ function MainApp() {
     }
   };
 
-  // =========================================================================
-  // API CALL FUNCTIONS - INGREDIENT DETECTION & RECIPE GENERATION
-  // =========================================================================
-  // Call backend to detect ingredients from uploaded photo
+  // --- API Calls ---
   const detectIngredients = async () => {
     if (!photoUri) return;
     setLoading(true);
@@ -1365,11 +1151,6 @@ function MainApp() {
     setLoading(true);
     setLoadingText('Chef Gemini is cooking up ideas...');
     try {
-      // Call backend AI recipe generation endpoint with:
-      // - Detected ingredients from photo
-      // - User preferences (cuisine, dietary, allergies, etc.)
-      // - Meal type filter (if specified)
-      // - Request for 3 recipe suggestions
       const res = await authFetch(`${BASE_URL}/generate-recipe/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1377,22 +1158,19 @@ function MainApp() {
           ingredients: detectedIngredients,
           preferences: {
             ...preferences,
-            // Add meal type to preferences if not set to 'any'
             ...(recipeMealType !== 'any' ? { mealType: recipeMealType } : {}),
           },
-          count: 3, // Request 3 recipe suggestions
+          count: 3,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        // Extract recipes from response
         const recipes = Array.isArray(data.recipes) ? data.recipes : [];
         if (recipes.length === 0) {
           Alert.alert('No recipes generated', 'Prep could not generate recipes this time. Please try again.');
           return;
         }
 
-        // Store generated recipes and navigate to selection screen
         setGeneratedRecipes(recipes);
         navigate('recipeSelect');
       } else {
@@ -1405,10 +1183,7 @@ function MainApp() {
     }
   };
 
-  // =========================================================================
-  // UTILITY HELPER FUNCTIONS
-  // =========================================================================
-  // Toggle item in/out of list (add if missing, remove if present)
+  // --- Toggle helpers ---
   const toggleList = (list: string[], value: string): string[] =>
     list.includes(value) ? list.filter(v => v !== value) : [...list, value];
 
@@ -1476,7 +1251,7 @@ function MainApp() {
     );
   }
 
-  // Fullscreen camera view
+  // Camera (fullscreen)
   if (isCameraActive) {
     return (
       <CameraView style={{ flex: 1 }} facing="back" ref={cameraRef}>
@@ -1492,13 +1267,11 @@ function MainApp() {
     );
   }
 
-  // Render screen based on current route
   switch (screen) {
 
     // =========================================================================
-    // HOME SCREEN
+    // HOME
     // =========================================================================
-    // Main entry point with quick action buttons for recipe generation and meal planning
     case 'home': return (
       <SafeAreaView style={styles.container}>
         <View style={styles.homeHeader}>
