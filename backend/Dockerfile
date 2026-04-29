@@ -28,4 +28,4 @@ print('YOLO pre-warm complete')"
 
 EXPOSE 8080
 
-CMD python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+CMD python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers 4 --timeout 120
